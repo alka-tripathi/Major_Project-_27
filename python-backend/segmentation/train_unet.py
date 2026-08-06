@@ -40,10 +40,10 @@ IMG_SIZE = 256          # MUST match mask_generator.py's output size
 BATCH_SIZE = 8          # segmentation is more memory-hungry than classification, lower default
 CLASSES = ["glioma", "meningioma", "pituitary"]   # notumor excluded - nothing to segment
 
-TRAIN_IMG_ROOT = "../dataset/Training"
-TRAIN_MASK_ROOT = "../dataset/Masks/Training"
-TEST_IMG_ROOT = "../dataset/Testing"
-TEST_MASK_ROOT = "../dataset/Masks/Testing"
+TRAIN_IMG_ROOT = "../dataset/Segmentation/Training/images"
+TRAIN_MASK_ROOT = "../dataset/Segmentation/Training/masks"
+TEST_IMG_ROOT = "../dataset/Segmentation/Testing/images"
+TEST_MASK_ROOT = "../dataset/Segmentation/Testing/masks"
 
 EPOCHS = 40
 LEARNING_RATE = 1e-4
@@ -60,23 +60,29 @@ MODEL_WEIGHTS_OUT = "../models/unet_segmentation.weights.h5"
 # STEP 1: Collect image/mask file pairs
 # ----------------------------------------------------------------------------
 def collect_pairs(img_root, mask_root):
-    """Returns matching lists of (image_path, mask_path) across all tumor classes."""
+    """
+    BRISC structure: img_root and mask_root are flat folders (no per-class
+    subfolders). Each image (e.g. brisc2025_train_00001_gl_ax_t1.jpg) has a
+    matching mask with the SAME basename but .png extension
+    (brisc2025_train_00001_gl_ax_t1.png) - no '_mask' suffix, unlike our old
+    pseudo-mask setup.
+    """
     image_paths, mask_paths = [], []
-    for cls in CLASSES:
-        img_dir = os.path.join(img_root, cls)
-        mask_dir = os.path.join(mask_root, cls)
-        if not os.path.exists(img_dir) or not os.path.exists(mask_dir):
-            print(f"[WARN] Missing folder for class '{cls}': {img_dir} or {mask_dir}")
-            continue
 
-        for img_path in sorted(glob.glob(os.path.join(img_dir, "*"))):
-            if not img_path.lower().endswith((".jpg", ".jpeg", ".png")):
-                continue
-            stem = os.path.splitext(os.path.basename(img_path))[0]
-            mask_path = os.path.join(mask_dir, f"{stem}_mask.png")
-            if os.path.exists(mask_path):
-                image_paths.append(img_path)
-                mask_paths.append(mask_path)
+    if not os.path.exists(img_root) or not os.path.exists(mask_root):
+        print(f"[WARN] Missing folder: {img_root} or {mask_root}")
+        return image_paths, mask_paths
+
+    for img_path in sorted(glob.glob(os.path.join(img_root, "*"))):
+        if not img_path.lower().endswith((".jpg", ".jpeg", ".png")):
+            continue
+        stem = os.path.splitext(os.path.basename(img_path))[0]
+        mask_path = os.path.join(mask_root, f"{stem}.png")
+        if os.path.exists(mask_path):
+            image_paths.append(img_path)
+            mask_paths.append(mask_path)
+        else:
+            print(f"[WARN] No matching mask for {os.path.basename(img_path)}")
 
     return image_paths, mask_paths
 
@@ -190,6 +196,16 @@ def conv_block(x, filters):
 
 def decoder_block(x, skip, filters):
     x = Conv2DTranspose(filters, 2, strides=2, padding="same")(x)
+
+    # Dynamically resize skip to match x's spatial size before attention/concat.
+    # We don't hardcode expected resolutions here - EfficientNet layer resolutions
+    # can differ slightly across TF/Keras versions (learned this the hard way with
+    # top_conv earlier), so we just always force-match at runtime instead of assuming.
+    if skip.shape[1] != x.shape[1] or skip.shape[2] != x.shape[2]:
+        skip = tf.keras.layers.Resizing(
+            x.shape[1], x.shape[2], interpolation="bilinear"
+        )(skip)
+
     attended_skip = attention_gate(skip, x, filters // 2)
     x = Concatenate()([x, attended_skip])
     x = conv_block(x, filters)
@@ -254,7 +270,7 @@ def iou_metric(y_true, y_pred, smooth=1e-6):
 def main():
     print("Collecting training image/mask pairs...")
     all_img_paths, all_mask_paths = collect_pairs(TRAIN_IMG_ROOT, TRAIN_MASK_ROOT)
-    print(f"Found {len(all_img_paths)} training pairs across {CLASSES}")
+    print(f"Found {len(all_img_paths)} training pairs (BRISC segmentation set covers: {CLASSES})")
 
     if len(all_img_paths) == 0:
         print("No training pairs found. Check that mask_generator.py has been run "

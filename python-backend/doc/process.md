@@ -25,7 +25,7 @@ python-backend/
 ├── requirements.txt
 │
 ├── dataset/
-│   ├── Training/
+│   ├── Training/                  # classification dataset (Kaggle Brain Tumor MRI)
 │   │   ├── glioma/                # 1400 images
 │   │   ├── meningioma/            # 1400 images
 │   │   ├── notumor/               # 1400 images
@@ -33,13 +33,16 @@ python-backend/
 │   ├── Testing/
 │   │   ├── glioma/                # 400 images
 │   │   ├── meningioma/            # 400 images
-│   │   ├── notumor/               # 400 images
+│   │   ├── notumor/                # 400 images
 │   │   └── pituitary/             # 400 images
-│   ├── Masks/                     # auto-generated pseudo-masks (see Section 5)
+│   ├── Masks/                     # pseudo-masks (Otsu-based, fallback approach, see Section 5)
 │   │   ├── Training/{glioma, meningioma, pituitary}/
 │   │   └── Testing/{glioma, meningioma, pituitary}/
-│   └── Masks_Preview/             # side-by-side preview images for spot-checking masks
-│       └── Training/{glioma, meningioma, pituitary}/
+│   ├── Masks_Preview/             # side-by-side preview images for spot-checking pseudo-masks
+│   │   └── Training/{glioma, meningioma, pituitary}/
+│   └── Segmentation/              # BRISC dataset - real annotated masks (used for actual training)
+│       ├── Training/{images, masks}/
+│       └── Testing/{images, masks}/
 │
 ├── training/
 │   ├── train_efficientnetb3.py    # classification training script
@@ -50,21 +53,30 @@ python-backend/
 │   └── training_curves.png
 │
 ├── mask_generator/
-│   └── mask_generator.py          # generates pseudo-masks for segmentation training
+│   └── mask_generator.py          # generates pseudo-masks (fallback, not used for final training)
 │
 ├── gradcam/
-│   ├── gradcam.py                 # explainability visualizations
+│   ├── gradcam.py                 # explainability visualizations (all classes or targeted folder)
 │   ├── find_misclassified.py      # finds + copies out misclassified test images
 │   ├── find_layer.py              # utility to inspect model layer names/indices
 │   ├── misclassified_samples/     # generated: misclassified images grouped by error type
-│   └── gradcam_outputs/           # generated: heatmap visualizations
+│   └── gradcam_outputs/           # generated: heatmap visualizations, organized per class
 │
 ├── segmentation/
-│   └── train_unet.py              # Attention U-Net segmentation training (not yet run)
+│   ├── train_unet.py              # Attention U-Net segmentation training (BRISC dataset)
+│   ├── evaluate_unet.py           # standalone evaluation + sample predictions (no retraining)
+│   ├── unet_training_log.csv      # generated
+│   └── unet_eval_outputs/         # generated: sample prediction visualizations
+│
+├── postprocessing/
+│   └── postprocess.py             # mask -> tumor size (mm^2) -> stage classification
+│
+├── app/
+│   └── main.py                    # FastAPI backend - single /predict endpoint
 │
 └── models/
-    ├── brain_tumor_efficientnetb3.h5   # trained classification model
-    └── unet_segmentation.weights.h5     # (to be generated)
+    ├── brain_tumor_efficientnetb3.h5        # trained classification model
+    └── unet_segmentation.weights.h5          # trained segmentation model
 ```
 
 ---
@@ -174,25 +186,101 @@ VS Code's integrated terminal has generally *not* had this problem — prefer ru
 
 ---
 
-## 7. Segmentation — Attention U-Net (Next Step, Not Yet Run)
+## 7. Segmentation — Attention U-Net
 
-**Script:** `segmentation/train_unet.py`
+**Script:** `segmentation/train_unet.py`, evaluated via `segmentation/evaluate_unet.py`
 
-**Architecture:** EfficientNetB3 encoder (same backbone family as the classifier, pretrained) + attention-gated decoder. Skip connections pulled from `stem_activation`, `block2a_expand_activation`, `block3a_expand_activation`, `block4a_expand_activation`; bottleneck from the final encoder output.
+**Dataset switch (important decision):** initially planned to use pseudo-masks generated via Otsu thresholding (Section 5). After discussing realistic accuracy ceilings, switched to **BRISC** (`briscdataset/brisc2025` on Kaggle) — a real, expert/radiologist-annotated segmentation dataset covering all three tumor classes (glioma, meningioma, pituitary), derived from the same underlying source as our classification dataset. This was the single biggest factor in reaching strong segmentation accuracy — pseudo-masks were estimated to cap around 0.65–0.75 Dice; real masks got us to 0.86+.
 
-**Why Attention U-Net over plain U-Net:** attention gates let the decoder suppress irrelevant background regions and focus on tumor-relevant areas at each upsampling stage — generally improves Dice score by a few points over plain U-Net, particularly helpful given our masks are pseudo-generated (not expert-annotated) and therefore noisier than ideal.
+**BRISC segmentation data structure:** flat `images/` + `masks/` folders (not per-class subfolders) — each image (e.g. `brisc2025_train_00001_gl_ax_t1.jpg`) has a matching mask with the identical filename but `.png` extension. 3,933 training pairs + 860 testing pairs, all verified 100% matched before training (`verify_brisc.py`).
 
-**Input size:** 256×256 (matches `mask_generator.py`'s output — **note this differs from the classifier's 300×300**, these are independent models with independently chosen resolutions).
+**Architecture:** EfficientNetB3 encoder (same backbone family as the classifier, pretrained) + attention-gated decoder. Skip connections pulled from `stem_activation`, `block2a_expand_activation`, `block3a_expand_activation`, `block4a_expand_activation`; bottleneck from the final encoder output. Decoder blocks **dynamically resize skip connections to match** at runtime rather than assuming fixed resolutions — needed because actual EfficientNetB3 layer resolutions didn't match initial assumptions (caused a `Concatenate` shape-mismatch crash on first attempt; fixed with a `Resizing` layer).
 
-**Loss:** combined BCE + Dice loss (standard for segmentation, handles the class imbalance of "mostly background, small tumor region" better than BCE alone).
+**Why Attention U-Net over plain U-Net:** attention gates let the decoder suppress irrelevant background regions and focus on tumor-relevant areas at each upsampling stage.
 
-**Data pairing:** custom `SegmentationDataGenerator` (not the standard `ImageDataGenerator`) — needed to guarantee identical random augmentation (flips/rotation) is applied to both image and mask together; otherwise they'd desync.
+**Input size:** 256×256 (independent of the classifier's 300×300 — these are separate models with independently chosen resolutions).
 
-**Model saving:** weights-only (`save_weights_only=True`), same pattern as the classification model's loading workaround — avoids the same `.h5` full-model deserialization bug preemptively.
+**Loss:** combined BCE + Dice loss.
 
-**Expected outcome (realistic, for report framing):** Dice scores likely lower than literature benchmarks trained on expert-annotated data (e.g., BraTS-trained U-Nets hit 0.85–0.93 Dice) since our masks are pseudo-generated. Expect roughly: pituitary ~0.75–0.85, meningioma ~0.65–0.78, glioma ~0.55–0.70. This should be stated as a known, explained limitation in the report — not hidden.
+**Data pairing:** custom `SegmentationDataGenerator` — guarantees identical random augmentation (flips/rotation) applied to both image and mask together.
 
-**Status:** script written, not yet executed.
+**Training:** 40 max epochs, `EarlyStopping(patience=8)` — stopped automatically at epoch 19 (best validation performance was earlier; no improvement for 8 epochs after, so it correctly halted rather than overfitting further).
+
+**Model saving:** weights-only (`save_weights_only=True`) — same `.h5` deserialization bug workaround as the classifier; loaded via `build_model() + load_weights()`, never `load_model()`.
+
+### Results (on BRISC test set, 860 images)
+
+```
+dice_coefficient: 0.8633
+iou_metric:       0.7856
+loss:             0.1588
+```
+
+**Overall test Dice: 86.33%** — in line with published literature using expert-annotated brain tumor segmentation datasets (typically 0.85–0.93 Dice range).
+
+**Per-sample spot check (8 random test images):** Dice ranged 0.626–0.969, with most samples in the 0.83–0.97 range. One outlier (0.626) worth a one-line mention in the report as a case with likely small/ambiguous tumor boundary — not indicative of a systemic issue given the rest of the sample.
+
+**Note on Keras 3 evaluation quirk:** `model.evaluate()`'s `metrics_names` didn't reliably map to result values in this Keras version (collapsed custom metrics into a generic `compile_metrics` key). Fixed by using `model.evaluate(..., return_dict=True)` instead, which reliably returns properly-labeled metric names.
+
+**Note on pseudo-mask pipeline (Section 5):** kept in the codebase as a documented fallback/comparison, not deleted — shows both approaches were tried, and explains *why* BRISC was ultimately chosen.
+
+---
+
+## 7a. Post-Processing — Mask → Tumor Size → Stage
+
+**Script:** `postprocessing/postprocess.py`
+
+**Pipeline:** takes the raw sigmoid mask output from U-Net → cleans it (morphological open/close, keeps only the largest connected blob, discards small noise) → converts pixel count to real-world area (mm²) → buckets into Small/Medium/Large stage → also returns a bounding box for frontend overlay use.
+
+**Important, honestly-documented limitation:** our source images are plain `.jpg`/`.png`, not DICOM, so there's no real per-patient pixel spacing metadata available. We use an **assumed** pixel spacing derived from a typical brain MRI field-of-view (~240mm) divided by our fixed 256px resolution. This gives a defensible **approximation** of real-world tumor size, not a clinically precise measurement — stated explicitly wherever size is reported, both in code comments and in this document.
+
+**Stage thresholds** (Small: 0–500mm², Medium: 500–1500mm², Large: 1500mm²+) are simplified, rule-based cutoffs for demonstration purposes, not a clinical staging standard — easy to adjust/defend if questioned.
+
+---
+
+## 7b. FastAPI Backend
+
+**Script:** `app/main.py`
+
+**Endpoint:** `POST /predict` — accepts an uploaded MRI image (multipart/form-data), runs the full pipeline, returns one JSON response.
+
+**Pipeline logic:**
+1. Classification runs first, always.
+2. If predicted class is `notumor` → returns immediately (tumor_detected: false), skipping Grad-CAM and segmentation entirely — saves compute, matches the efficiency plan discussed early in the project.
+3. If a tumor is detected → runs Grad-CAM (explainability heatmap), segmentation (U-Net), and post-processing (size + stage) — all in the same request, response includes base64-encoded overlay images ready for the Next.js frontend to render directly.
+
+**Design notes:**
+- Both models load **once at server startup**, not per-request (loading a model per request would be extremely slow).
+- CORS enabled for local Next.js dev server; `allow_origins` should be tightened to the actual deployed frontend URL before production.
+- Uses the same `build_model() + load_weights()` pattern established for both classifier and segmentation model — consistent, proven workaround for the Keras `.h5` loading bug across the whole backend.
+
+**Status:** ✅ Server starts successfully — both models (classification + segmentation) load correctly in the same process via the `build_model() + load_weights()` pattern, no conflicts between them. Confirmed via `/health` endpoint and startup logs:
+```
+Loading classification model...
+Classification model ready.
+Loading segmentation model...
+Segmentation model ready.
+Application startup complete.
+```
+`/predict` endpoint tested manually via curl with a real MRI image — full pipeline (classification → Grad-CAM → segmentation → post-processing) confirmed working end-to-end in a single request.
+
+**Backend status: core pipeline complete.** Remaining work going forward is frontend integration (Next.js), not backend logic.
+
+---
+
+## 7c. Model Hosting — Hugging Face
+
+Trained model files exceed GitHub's 100MB file size limit (classification model alone is well over this), so both trained models are hosted on Hugging Face instead of being committed to the repo directly.
+
+- **Classification model (`brain_tumor_efficientnetb3.h5`):** [ADD HUGGING FACE URL HERE]
+- **Segmentation model (`unet_segmentation.weights.h5`):** [ADD HUGGING FACE URL HERE — pending upload]
+
+Both URLs are also listed in `python-backend/README.md`. Anyone setting up this project locally needs to download these two files from Hugging Face and place them at:
+```
+python-backend/models/brain_tumor_efficientnetb3.h5
+python-backend/models/unet_segmentation.weights.h5
+```
+before running `app/main.py` — the FastAPI server will fail to start without them (both are loaded at startup, not lazily).
 
 ---
 
@@ -206,13 +294,21 @@ VS Code's integrated terminal has generally *not* had this problem — prefer ru
 | `load_model()` fails with `VarianceScaling` / `input_axes` TypeError | Keras 3.14.1 bug in legacy `.h5` config round-trip | Rebuild architecture in code + `model.load_weights()` instead of `load_model()` — see `build_model()` pattern in `gradcam.py` |
 | Grad-CAM++ heatmaps inverted (hot on background, cold on tumor) | Numerical instability in triple-nested gradients on a 260+ layer network | Switched to standard (single-gradient) Grad-CAM |
 | `python -c "multi-line code"` fails in Windows CMD | CMD doesn't parse multi-line quoted strings like bash | Save as a `.py` file and run `python file.py` instead |
+| `Concatenate` shape mismatch in U-Net decoder | Assumed EfficientNetB3 skip-layer resolutions were wrong for this Keras version | Dynamically resize skip connections to match at runtime (`tf.keras.layers.Resizing`) instead of assuming fixed resolutions |
+| `model.evaluate()` metrics not matching `metrics_names` (Keras 3) | Custom metrics collapsed into a generic `compile_metrics` key | Use `model.evaluate(..., return_dict=True)` instead |
+| Training script printed old pseudo-mask pair count instead of BRISC count | Local file wasn't actually updated (same 0-byte/stale-save issue as elsewhere) | Always verify file content/size after saving before running |
 
 ---
 
 ## 9. What's Next
 
-1. Run `train_unet.py`, evaluate Dice/IoU on test set
-2. Post-processing script: convert segmentation mask → tumor size (mm²) using pixel spacing, bucket into Small/Medium/Large stage
-3. Build FastAPI backend (`app/main.py`) wiring classification + Grad-CAM + segmentation + post-processing into one `/predict` endpoint
-4. Connect Next.js frontend to the FastAPI endpoint
-5. (Optional, time-permitting) Test-Time Augmentation or ensemble (EfficientNetB3 + Xception) to squeeze additional classification accuracy
+Backend is functionally complete. Remaining work:
+
+1. ~~Run `train_unet.py`, evaluate Dice/IoU on test set~~ ✅ Done — 86.33% Dice on BRISC test set
+2. ~~Post-processing script: mask → tumor size (mm²) → stage~~ ✅ Done — `postprocessing/postprocess.py`
+3. ~~Build FastAPI backend wiring everything into one `/predict` endpoint~~ ✅ Done — `app/main.py`
+4. ~~Load-test `app/main.py` end-to-end~~ ✅ Done — server starts, `/health` and `/predict` both confirmed working
+5. Upload segmentation model weights to Hugging Face (classification model already uploaded — see Section 7c), add URL to this doc and `README.md`
+6. Connect Next.js frontend to the FastAPI endpoint (frontend already built — this is the remaining integration work)
+7. (Optional, time-permitting) Test-Time Augmentation or ensemble (EfficientNetB3 + Xception) to squeeze additional classification accuracy
+8. (Optional, before any real deployment) Tighten CORS `allow_origins` in `main.py` from `["*"]` to the actual frontend URL

@@ -1,0 +1,240 @@
+"""
+FastAPI Backend - Brain Tumor Detection
+==========================================
+Single /predict endpoint that runs the full pipeline:
+    1. Classification (EfficientNetB3) -> tumor type + confidence
+    2. If a tumor is detected:
+         a. Grad-CAM -> explainability heatmap
+         b. Segmentation (Attention U-Net) -> tumor mask
+         c. Post-processing -> tumor size (mm^2) + stage
+    3. Returns everything as JSON (images as base64-encoded PNGs)
+
+Run this from inside python-backend/app/, e.g.:
+    uvicorn main:app --reload --port 8000
+
+Then your Next.js frontend calls:
+    POST http://localhost:8000/predict   (multipart/form-data, field name "file")
+"""
+
+import os
+import sys
+import io
+import base64
+
+import numpy as np
+import cv2
+import tensorflow as tf
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from PIL import Image
+
+from tensorflow.keras.applications import EfficientNetB3
+from tensorflow.keras.applications.efficientnet import preprocess_input
+from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, BatchNormalization
+from tensorflow.keras.models import Model
+
+# ----------------------------------------------------------------------------
+# Make sibling folders importable (postprocessing/, segmentation/)
+# ----------------------------------------------------------------------------
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(CURRENT_DIR, "..", "postprocessing"))
+sys.path.append(os.path.join(CURRENT_DIR, "..", "segmentation"))
+
+from postprocess import process_mask   # noqa: E402
+
+# ----------------------------------------------------------------------------
+# CONFIG
+# ----------------------------------------------------------------------------
+CLS_IMG_SIZE = 300
+SEG_IMG_SIZE = 256
+CLASS_NAMES = ["glioma", "meningioma", "notumor", "pituitary"]
+LAST_CONV_LAYER_NAME = "top_conv"
+
+CLS_MODEL_PATH = os.path.join(CURRENT_DIR, "..", "models", "brain_tumor_efficientnetb3.h5")
+SEG_MODEL_PATH = os.path.join(CURRENT_DIR, "..", "models", "unet_segmentation.weights.h5")
+
+
+# ----------------------------------------------------------------------------
+# MODEL BUILDERS (rebuild architecture in code, then load_weights - the
+# pattern that reliably works around the Keras .h5 loading bug we hit earlier)
+# ----------------------------------------------------------------------------
+def build_classification_model():
+    base_model = EfficientNetB3(
+        include_top=False, weights=None, input_shape=(CLS_IMG_SIZE, CLS_IMG_SIZE, 3)
+    )
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)
+    x = Dense(256, activation="relu")(x)
+    x = Dropout(0.3)(x)
+    outputs = Dense(len(CLASS_NAMES), activation="softmax")(x)
+    return Model(inputs=base_model.input, outputs=outputs)
+
+
+def build_segmentation_model():
+    # Imported lazily to avoid circular/heavy import cost at module load if
+    # segmentation isn't needed for a given request path.
+    from train_unet import build_model as build_unet
+    return build_unet()
+
+
+# ----------------------------------------------------------------------------
+# LOAD MODELS ONCE AT STARTUP (not per-request - that would be very slow)
+# ----------------------------------------------------------------------------
+print("Loading classification model...")
+classification_model = build_classification_model()
+classification_model.load_weights(CLS_MODEL_PATH)
+print("Classification model ready.")
+
+print("Loading segmentation model...")
+segmentation_model = build_segmentation_model()
+segmentation_model.load_weights(SEG_MODEL_PATH)
+print("Segmentation model ready.")
+
+# Grad-CAM sub-model, built once and reused (avoids rebuilding per request)
+gradcam_model = tf.keras.models.Model(
+    inputs=classification_model.inputs,
+    outputs=[
+        classification_model.get_layer(LAST_CONV_LAYER_NAME).output,
+        classification_model.output,
+    ],
+)
+
+
+# ----------------------------------------------------------------------------
+# FASTAPI APP
+# ----------------------------------------------------------------------------
+app = FastAPI(title="Brain Tumor Detection API")
+
+# Allow the Next.js dev server (and later, your deployed frontend) to call this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # tighten this to your actual frontend URL before deploying
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ----------------------------------------------------------------------------
+# HELPERS
+# ----------------------------------------------------------------------------
+def read_image_from_upload(file_bytes):
+    image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    return np.array(image)
+
+
+def encode_image_to_base64(img_array):
+    """img_array: uint8 RGB numpy array -> base64 PNG string for JSON response."""
+    success, buffer = cv2.imencode(".png", cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR))
+    if not success:
+        return None
+    return base64.b64encode(buffer).decode("utf-8")
+
+
+def run_classification(raw_img_rgb):
+    resized = cv2.resize(raw_img_rgb, (CLS_IMG_SIZE, CLS_IMG_SIZE))
+    model_input = preprocess_input(resized.astype(np.float32))[np.newaxis, ...]
+    probs = classification_model.predict(model_input, verbose=0)[0]
+    pred_index = int(np.argmax(probs))
+    return CLASS_NAMES[pred_index], float(probs[pred_index]), probs, pred_index
+
+
+def run_gradcam(raw_img_rgb, pred_index):
+    resized = cv2.resize(raw_img_rgb, (CLS_IMG_SIZE, CLS_IMG_SIZE))
+    model_input = preprocess_input(resized.astype(np.float32))[np.newaxis, ...]
+
+    with tf.GradientTape() as tape:
+        conv_output, predictions = gradcam_model(model_input)
+        class_channel = predictions[:, pred_index]
+
+    grads = tape.gradient(class_channel, conv_output)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    conv_output = conv_output[0]
+    heatmap = conv_output @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap)
+    heatmap = tf.nn.relu(heatmap)
+    max_val = tf.math.reduce_max(heatmap)
+    max_val = max_val if max_val != 0 else 1e-8
+    heatmap = (heatmap / max_val).numpy()
+
+    heatmap_resized = cv2.resize(heatmap, (raw_img_rgb.shape[1], raw_img_rgb.shape[0]))
+    heatmap_uint8 = np.uint8(255 * heatmap_resized)
+    heatmap_colored = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
+    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+
+    overlay = cv2.addWeighted(raw_img_rgb, 0.55, heatmap_colored, 0.45, 0)
+    return overlay
+
+
+def run_segmentation(raw_img_rgb):
+    resized = cv2.resize(raw_img_rgb, (SEG_IMG_SIZE, SEG_IMG_SIZE))
+    model_input = preprocess_input(resized.astype(np.float32))[np.newaxis, ...]
+    pred_mask = segmentation_model.predict(model_input, verbose=0)[0, :, :, 0]
+    return pred_mask   # values in [0,1], SEG_IMG_SIZE x SEG_IMG_SIZE
+
+
+def draw_mask_overlay(raw_img_rgb, clean_mask_seg_size):
+    resized_original = cv2.resize(raw_img_rgb, (SEG_IMG_SIZE, SEG_IMG_SIZE))
+    overlay = resized_original.copy()
+    overlay[clean_mask_seg_size > 0] = [255, 0, 0]
+    blended = cv2.addWeighted(resized_original, 0.6, overlay, 0.4, 0)
+    return blended
+
+
+# ----------------------------------------------------------------------------
+# MAIN ENDPOINT
+# ----------------------------------------------------------------------------
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
+
+    file_bytes = await file.read()
+    try:
+        raw_img_rgb = read_image_from_upload(file_bytes)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the uploaded image.")
+
+    # ---- Step 1: Classification ----
+    pred_class, confidence, all_probs, pred_index = run_classification(raw_img_rgb)
+
+    response = {
+        "tumor_type": pred_class,
+        "confidence": round(confidence, 4),
+        "class_probabilities": {
+            CLASS_NAMES[i]: round(float(p), 4) for i, p in enumerate(all_probs)
+        },
+    }
+
+    # ---- Early exit: no tumor detected ----
+    if pred_class == "notumor":
+        response["tumor_detected"] = False
+        return JSONResponse(content=response)
+
+    response["tumor_detected"] = True
+
+    # ---- Step 2: Grad-CAM ----
+    gradcam_overlay = run_gradcam(raw_img_rgb, pred_index)
+    response["gradcam_overlay_base64"] = encode_image_to_base64(gradcam_overlay)
+
+    # ---- Step 3: Segmentation ----
+    raw_mask = run_segmentation(raw_img_rgb)
+
+    # ---- Step 4: Post-processing (size + stage) ----
+    seg_result = process_mask(raw_mask)
+    response["tumor_size_mm2"] = seg_result["area_mm2"]
+    response["stage"] = seg_result["stage"]
+    response["bounding_box"] = seg_result["bounding_box"]
+
+    mask_overlay = draw_mask_overlay(raw_img_rgb, seg_result["clean_mask"])
+    response["segmentation_overlay_base64"] = encode_image_to_base64(mask_overlay)
+
+    return JSONResponse(content=response)
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "models_loaded": True}
