@@ -70,3 +70,4 @@ python-backend/dataset/
 *.keras
 *.h5
 *.pth
+node_modules

@@ -1,0 +1,3 @@
+module.exports=[14182,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(49582);a.n(d("[project]/Brain_Tumor_AI/frontend/node_modules/next/dist/client/components/builtin/global-error.js <module evaluation>"))},8163,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(49582);a.n(d("[project]/Brain_Tumor_AI/frontend/node_modules/next/dist/client/components/builtin/global-error.js"))},50522,a=>{"use strict";a.i(14182);var b=a.i(8163);a.n(b)},67118,a=>{a.n(a.i(50522))}];
+
+//# sourceMappingURL=09hn_next_dist_client_components_builtin_global-error_0h-n2m9.js.map

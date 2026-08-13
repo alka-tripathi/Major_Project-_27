@@ -20,11 +20,12 @@ import os
 import sys
 import io
 import base64
+import json
 
 import numpy as np
 import cv2
 import tensorflow as tf
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
@@ -84,23 +85,32 @@ def build_segmentation_model():
 # LOAD MODELS ONCE AT STARTUP (not per-request - that would be very slow)
 # ----------------------------------------------------------------------------
 print("Loading classification model...")
-classification_model = build_classification_model()
-classification_model.load_weights(CLS_MODEL_PATH)
-print("Classification model ready.")
+try:
+    classification_model = build_classification_model()
+    classification_model.load_weights(CLS_MODEL_PATH)
+    print("Classification model ready.")
+    
+    # Grad-CAM sub-model
+    gradcam_model = tf.keras.models.Model(
+        inputs=classification_model.inputs,
+        outputs=[
+            classification_model.get_layer(LAST_CONV_LAYER_NAME).output,
+            classification_model.output,
+        ],
+    )
+except Exception as e:
+    print(f"Warning: Could not load classification model. Please train it first. Error: {e}")
+    classification_model = None
+    gradcam_model = None
 
 print("Loading segmentation model...")
-segmentation_model = build_segmentation_model()
-segmentation_model.load_weights(SEG_MODEL_PATH)
-print("Segmentation model ready.")
-
-# Grad-CAM sub-model, built once and reused (avoids rebuilding per request)
-gradcam_model = tf.keras.models.Model(
-    inputs=classification_model.inputs,
-    outputs=[
-        classification_model.get_layer(LAST_CONV_LAYER_NAME).output,
-        classification_model.output,
-    ],
-)
+try:
+    segmentation_model = build_segmentation_model()
+    segmentation_model.load_weights(SEG_MODEL_PATH)
+    print("Segmentation model ready.")
+except Exception as e:
+    print(f"Warning: Could not load segmentation model. Please train it first. Error: {e}")
+    segmentation_model = None
 
 
 # ----------------------------------------------------------------------------
@@ -199,6 +209,9 @@ async def predict(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Could not read the uploaded image.")
 
     # ---- Step 1: Classification ----
+    if classification_model is None:
+        raise HTTPException(status_code=503, detail="Classification model is not trained/loaded yet.")
+
     pred_class, confidence, all_probs, pred_index = run_classification(raw_img_rgb)
 
     response = {
@@ -217,10 +230,14 @@ async def predict(file: UploadFile = File(...)):
     response["tumor_detected"] = True
 
     # ---- Step 2: Grad-CAM ----
-    gradcam_overlay = run_gradcam(raw_img_rgb, pred_index)
-    response["gradcam_overlay_base64"] = encode_image_to_base64(gradcam_overlay)
+    if gradcam_model is not None:
+        gradcam_overlay = run_gradcam(raw_img_rgb, pred_index)
+        response["gradcam_overlay_base64"] = encode_image_to_base64(gradcam_overlay)
 
     # ---- Step 3: Segmentation ----
+    if segmentation_model is None:
+        return JSONResponse(content=response)
+        
     raw_mask = run_segmentation(raw_img_rgb)
 
     # ---- Step 4: Post-processing (size + stage) ----
@@ -238,3 +255,68 @@ async def predict(file: UploadFile = File(...)):
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "models_loaded": True}
+
+import asyncio
+
+@app.websocket("/ws/train/{model_type}")
+async def websocket_train(websocket: WebSocket, model_type: str):
+    await websocket.accept()
+    if model_type not in ["segmentation", "classification"]:
+        await websocket.send_json({"error": "Invalid model type"})
+        await websocket.close()
+        return
+
+    if model_type == "segmentation":
+        script_path = os.path.join(CURRENT_DIR, "..", "segmentation", "train_unet.py")
+        cwd = os.path.join(CURRENT_DIR, "..", "segmentation")
+    else:
+        script_path = os.path.join(CURRENT_DIR, "..", "training", "train_efficientnetb3.py")
+        cwd = os.path.join(CURRENT_DIR, "..", "training")
+
+    process = None
+    try:
+        print(f"Starting subprocess for {model_type}: {sys.executable} {script_path} --stream", flush=True)
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, script_path, "--stream",
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+        print(f"Subprocess started with PID: {process.pid}", flush=True)
+
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                print("Subprocess stdout EOF.", flush=True)
+                break
+            
+            decoded_line = line.decode('utf-8').strip()
+            print(f"Subprocess stdout: {decoded_line[:100]}...", flush=True)
+            if decoded_line.startswith("WS_STREAM:"):
+                json_str = decoded_line.replace("WS_STREAM:", "")
+                try:
+                    data = json.loads(json_str)
+                    await websocket.send_json(data)
+                except Exception as e:
+                    print(f"WS JSON parsing error: {e}", flush=True)
+            elif decoded_line.startswith("WS_STREAM_ERROR:"):
+                await websocket.send_json({"error": decoded_line})
+            else:
+                if decoded_line:
+                    await websocket.send_json({"log": decoded_line})
+
+        await process.wait()
+        print(f"Subprocess finished with return code: {process.returncode}", flush=True)
+        await websocket.send_json({"done": True})
+    except WebSocketDisconnect:
+        print("WebSocket disconnected by client.", flush=True)
+        if process and process.returncode is None:
+            process.terminate()
+    except Exception as e:
+        print(f"WebSocket Exception: {e}", flush=True)
+        try:
+            await websocket.send_json({"error": str(e)})
+        except:
+            pass
+        if process and process.returncode is None:
+            process.terminate()

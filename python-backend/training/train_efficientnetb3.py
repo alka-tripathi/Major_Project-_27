@@ -21,6 +21,10 @@ Expected dataset folder structure:
 """
 
 import os
+import argparse
+import json
+import base64
+import cv2
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.applications import EfficientNetB3
@@ -140,6 +144,82 @@ model.summary()
 # ----------------------------------------------------------------------------
 # 5. STAGE 1 — Train the new head only (backbone frozen)
 # ----------------------------------------------------------------------------
+args = None
+try:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stream", action="store_true")
+    args = parser.parse_args()
+except:
+    class Args: pass
+    args = Args()
+    args.stream = False
+
+class WebSocketStreamCallback(tf.keras.callbacks.Callback):
+    def __init__(self, val_gen, model, total_epochs_offset=0):
+        super().__init__()
+        self.val_gen = val_gen
+        self.total_epochs_offset = total_epochs_offset
+        
+        # Build gradcam model once
+        LAST_CONV_LAYER_NAME = "top_conv"
+        self.gradcam_model = tf.keras.models.Model(
+            inputs=model.inputs,
+            outputs=[
+                model.get_layer(LAST_CONV_LAYER_NAME).output,
+                model.output,
+            ],
+        )
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        try:
+            # get one batch
+            self.val_gen.reset()
+            batch_images, batch_labels = next(self.val_gen)
+            img = batch_images[0]
+            true_label = np.argmax(batch_labels[0])
+            
+            # Predict & Grad-CAM
+            img_input = np.expand_dims(img, axis=0)
+            with tf.GradientTape() as tape:
+                conv_output, predictions = self.gradcam_model(img_input)
+                pred_index = tf.argmax(predictions[0])
+                class_channel = predictions[:, pred_index]
+
+            grads = tape.gradient(class_channel, conv_output)
+            pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+            conv_output = conv_output[0]
+            heatmap = conv_output @ pooled_grads[..., tf.newaxis]
+            heatmap = tf.squeeze(heatmap)
+            heatmap = tf.nn.relu(heatmap)
+            max_val = tf.math.reduce_max(heatmap)
+            max_val = max_val if max_val != 0 else 1e-8
+            heatmap = (heatmap / max_val).numpy()
+            
+            # Denorm img for display (EfficientNet B3 input is raw pixels minus IMAGENET mean but preprocess_input does not scale to 0-1)
+            # Actually, preprocess_input for efficientnet just expects 0-255. But ImageDataGenerator might give it back as is.
+            disp_img = np.clip(img, 0, 255).astype(np.uint8)
+            heatmap_resized = cv2.resize(heatmap, (disp_img.shape[1], disp_img.shape[0]))
+            heatmap_uint8 = np.uint8(255 * heatmap_resized)
+            heatmap_colored = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
+            heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+            
+            overlay = cv2.addWeighted(disp_img, 0.55, heatmap_colored, 0.45, 0)
+            
+            success, buffer = cv2.imencode(".png", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+            b64 = ""
+            if success:
+                b64 = base64.b64encode(buffer).decode("utf-8")
+                
+            data = {
+                "epoch": epoch + 1 + self.total_epochs_offset,
+                "metrics": {k: float(v) for k, v in logs.items()},
+                "image_base64": b64
+            }
+            print("WS_STREAM:" + json.dumps(data), flush=True)
+        except Exception as e:
+            print(f"WS_STREAM_ERROR: {str(e)}", flush=True)
+
 model.compile(
     optimizer=Adam(learning_rate=STAGE1_LR),
     loss="categorical_crossentropy",
@@ -152,6 +232,8 @@ callbacks_stage1 = [
     ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-7),
     CSVLogger("stage1_log.csv"),
 ]
+if args and args.stream:
+    callbacks_stage1.append(WebSocketStreamCallback(val_gen, model, total_epochs_offset=0))
 
 history1 = model.fit(
     train_gen,
@@ -188,6 +270,8 @@ callbacks_stage2 = [
     ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-8),
     CSVLogger("stage2_log.csv"),
 ]
+if args and args.stream:
+    callbacks_stage2.append(WebSocketStreamCallback(val_gen, model, total_epochs_offset=STAGE1_EPOCHS))
 
 history2 = model.fit(
     train_gen,
