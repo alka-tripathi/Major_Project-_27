@@ -19,6 +19,9 @@ Run this from inside python-backend/segmentation/, e.g.:
 
 import os
 import glob
+import json
+import base64
+import argparse
 import numpy as np
 import cv2
 import tensorflow as tf
@@ -267,7 +270,49 @@ def iou_metric(y_true, y_pred, smooth=1e-6):
 # ----------------------------------------------------------------------------
 # STEP 5: MAIN TRAINING
 # ----------------------------------------------------------------------------
+class WebSocketStreamCallback(tf.keras.callbacks.Callback):
+    def __init__(self, val_gen):
+        super().__init__()
+        self.val_gen = val_gen
+        
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        try:
+            batch_images, batch_masks = self.val_gen[0]
+            img = batch_images[0]
+            pred_mask = self.model.predict(np.expand_dims(img, axis=0), verbose=0)[0]
+            
+            disp_img = np.clip(img, 0, 255).astype(np.uint8)
+            overlay = disp_img.copy()
+            pred_mask_bin = (pred_mask > 0.5).astype(np.uint8)
+            
+            # Draw red overlay where predicted mask is 1
+            if len(pred_mask_bin.shape) == 3 and pred_mask_bin.shape[2] == 1:
+                overlay[pred_mask_bin[:, :, 0] == 1] = [255, 0, 0]
+            else:
+                overlay[pred_mask_bin == 1] = [255, 0, 0]
+                
+            blended = cv2.addWeighted(disp_img, 0.6, overlay, 0.4, 0)
+            
+            success, buffer = cv2.imencode(".png", cv2.cvtColor(blended, cv2.COLOR_RGB2BGR))
+            b64 = ""
+            if success:
+                b64 = base64.b64encode(buffer).decode("utf-8")
+                
+            data = {
+                "epoch": epoch + 1,
+                "metrics": {k: float(v) for k, v in logs.items()},
+                "image_base64": b64
+            }
+            print("WS_STREAM:" + json.dumps(data), flush=True)
+        except Exception as e:
+            print(f"WS_STREAM_ERROR: {str(e)}", flush=True)
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stream", action="store_true", help="Stream epoch results as JSON")
+    args = parser.parse_args()
+
     print("Collecting training image/mask pairs...")
     all_img_paths, all_mask_paths = collect_pairs(TRAIN_IMG_ROOT, TRAIN_MASK_ROOT)
     print(f"Found {len(all_img_paths)} training pairs (BRISC segmentation set covers: {CLASSES})")
@@ -312,6 +357,9 @@ def main():
         ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-7),
         CSVLogger("unet_training_log.csv"),
     ]
+
+    if args.stream:
+        callbacks.append(WebSocketStreamCallback(val_gen))
 
     print("Starting training...")
     history = model.fit(

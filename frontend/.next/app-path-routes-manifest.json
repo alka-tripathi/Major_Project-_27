@@ -1,0 +1,17 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/doctors/profile/route": "/api/doctors/profile",
+  "/api/doctors/sync/route": "/api/doctors/sync",
+  "/api/patients/[id]/route": "/api/patients/[id]",
+  "/api/patients/route": "/api/patients",
+  "/dashboard/add-patient/page": "/dashboard/add-patient",
+  "/dashboard/page": "/dashboard",
+  "/dashboard/patient/[id]/page": "/dashboard/patient/[id]",
+  "/dashboard/patients/page": "/dashboard/patients",
+  "/dashboard/profile/page": "/dashboard/profile",
+  "/favicon.ico/route": "/favicon.ico",
+  "/login/page": "/login",
+  "/page": "/",
+  "/signup/page": "/signup"
+}
