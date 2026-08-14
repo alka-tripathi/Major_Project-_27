@@ -1,5 +1,43 @@
+# Python Model Weights (Hosted on HuggingFace)
 models/*.h5
 models/*.weights.h5
+*.keras
+*.h5
+*.pth
+*.pt
+*.onnx
+
+# Explicitly ensure Jupyter Notebook files are NEVER ignored
+!*.ipynb
+
+# Explicitly ensure segmentation and training folders are 100% fully tracked
+!segmentation/
+!segmentation/**
+!training/
+!training/**
+
+# Local Datasets & Generated Image Outputs
+dataset/
+uploads/
+heatmaps/
+segmentations/
+gradcam/gradcam_outputs/
+gradcam/misclassified_samples/
+preprocessing/unet_eval_outputs/
+
+# Python Cache & Virtual Environments
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
 venv/
+.venv/
+env/
+
+# Jupyter Temporary Checkpoints
+.ipynb_checkpoints/
+
+# Environment Variables & Logs
+.env
+*.log

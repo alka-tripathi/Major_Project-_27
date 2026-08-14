@@ -104,7 +104,7 @@
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "C:\\Projects\\MAJOR\\brain_test",
+    "outputFileTracingRoot": "C:\\Users\\HP\\Major_Project-_27\\frontend",
     "cacheComponents": false,
     "cacheLife": {
       "default": {
@@ -166,7 +166,7 @@
       "proxyPrefetch": "flexible",
       "optimisticClientCache": true,
       "manualClientBasePath": false,
-      "cpus": 15,
+      "cpus": 7,
       "memoryBasedWorkersCount": false,
       "imgOptConcurrency": null,
       "imgOptTimeoutInSeconds": 7,
@@ -305,12 +305,12 @@
     "configFileName": "next.config.ts",
     "reactCompiler": true,
     "turbopack": {
-      "root": "C:\\Projects\\MAJOR\\brain_test"
+      "root": "C:\\Users\\HP\\Major_Project-_27\\frontend"
     },
     "distDirRoot": ".next"
   },
-  "appDir": "C:\\Projects\\MAJOR\\brain_test\\Brain_Tumor_AI\\frontend",
-  "relativeAppDir": "Brain_Tumor_AI\\frontend",
+  "appDir": "C:\\Users\\HP\\Major_Project-_27\\frontend",
+  "relativeAppDir": "",
   "files": [
     ".next\\package.json",
     ".next\\routes-manifest.json",

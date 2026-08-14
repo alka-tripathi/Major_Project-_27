@@ -6,19 +6,31 @@ export async function POST(req: NextRequest) {
   try {
     await connectDB();
 
-    const { firebaseUid, email, name, firstName, lastName } = await req.json();
+    const body = await req.json();
+    const { firebaseUid, email, name, firstName, lastName, profilePic, photoURL } = body || {};
+    const doctorProfilePic = profilePic || photoURL || "";
+
+    if (!firebaseUid || !email) {
+      return NextResponse.json(
+        { success: false, message: "firebaseUid and email are required" },
+        { status: 400 }
+      );
+    }
 
     let doctor = await Doctor.findOne({ firebaseUid });
 
     if (!doctor) {
-      // Handle fallback if `name` is provided (e.g. from Google Login which gives a display name)
-      let finalFirstName = firstName || "";
-      let finalLastName = lastName || "";
+      let finalFirstName = firstName?.trim() || "";
+      let finalLastName = lastName?.trim() || "";
       
-      if (name && !firstName && !lastName) {
-        const parts = name.split(" ");
+      if (!finalFirstName && name) {
+        const parts = name.trim().split(" ");
         finalFirstName = parts[0];
         finalLastName = parts.slice(1).join(" ");
+      }
+
+      if (!finalFirstName) {
+        finalFirstName = email.split("@")[0] || "Doctor";
       }
 
       doctor = await Doctor.create({
@@ -26,11 +38,17 @@ export async function POST(req: NextRequest) {
         email,
         firstName: finalFirstName,
         lastName: finalLastName,
+        profilePic: doctorProfilePic,
       });
+    } else if (doctorProfilePic && !doctor.profilePic) {
+      // Update profile picture if missing
+      doctor.profilePic = doctorProfilePic;
+      await doctor.save();
     }
 
     return NextResponse.json(doctor);
   } catch (error: any) {
+    console.error("Error syncing doctor to MongoDB:", error);
     return NextResponse.json(
       { success: false, message: error.message },
       { status: 500 }

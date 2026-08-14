@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Doctor from "@/models/Doctor";
+import Patient from "@/models/Patient";
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,8 +25,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Count total patients associated with this doctor in MongoDB
+    const patientCount = await Patient.countDocuments({ doctorId: firebaseUid });
+
     // Handle legacy schema where 'name' was used instead of 'firstName' and 'lastName'
     let responseDoctor = doctor.toObject() as any;
+    responseDoctor.totalPatients = patientCount;
+
     if (responseDoctor.name && !responseDoctor.firstName && !responseDoctor.lastName) {
       const parts = responseDoctor.name.split(" ");
       responseDoctor.firstName = parts[0] || "";

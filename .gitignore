@@ -1,8 +1,10 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ==============================================================================
+# BrainTumorAI Root .gitignore
+# ==============================================================================
 
-# dependencies
-/node_modules
-/.pnp
+# Node / JavaScript Dependencies
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -10,64 +12,87 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
+# Next.js & Frontend Build Outputs
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
 
-# next.js
-/.next/
-/out/
+# Sensitive Environment & Secret Configs
+.env
+.env.local
+.env.development
+.env.production
+.env*.local
+*.env
 
-# production
-/build
+# Testing & Coverage
+coverage/
+.nyc_output/
 
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Logs & Debugging
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# python virtual environment
+# Python Virtual Environments
 venv/
 env/
 .venv/
+ENV/
+env.bak/
+venv.bak/
 
-# python cache
+# Python Cache & Compiled Files
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.pytest_cache/
 
-# jupyter
-.ipynb_checkpoints
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
 
-# logs
-*.log
+# Explicitly ensure Jupyter Notebook files are NEVER ignored
+!*.ipynb
 
-# OS files
-Thumbs.db
-# Generated MRI images
+# Explicitly ensure segmentation and training folders are 100% fully tracked
+!python-backend/segmentation/
+!python-backend/segmentation/**
+!python-backend/training/
+!python-backend/training/**
+
+# Machine Learning Model Weights & Large Binary Files (Hosted on HuggingFace)
+*.h5
+*.keras
+*.weights.h5
+*.pth
+*.pt
+*.onnx
+*.pkl
+*.joblib
+*.pb
+*.ckpt
+
+# Local Datasets & Generated Image Outputs
+python-backend/dataset/
 python-backend/uploads/
 python-backend/heatmaps/
 python-backend/segmentations/
+python-backend/gradcam/gradcam_outputs/
+python-backend/gradcam/misclassified_samples/
+python-backend/preprocessing/unet_eval_outputs/
 
-# Dataset
-python-backend/dataset/
-
-# Trained model files
-*.keras
-*.h5
-*.pth
-node_modules
+# OS & IDE Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.pem
+.vscode/
+.idea/
+*.swp
+*.swo

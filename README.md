@@ -18,3 +18,8 @@ python-backend/models/unet_segmentation.weights.h5
 3. Do not rename or convert the files — the app expects `.h5` files loaded via `load_weights()`, not the native `.keras` format.
 
 Once both files are in place, `app/main.py` will load them automatically on server startup.
+
+## Documentation
+
+- **[TECHNICAL_PATHWAYS_AND_WORKFLOWS.md](file:///c:/Users/HP/Major_Project-_27/TECHNICAL_PATHWAYS_AND_WORKFLOWS.md)** — Exhaustive technical specification covering every system pathway, AI inference step, WebSocket stream, database schema, and fallback mechanism.
+- **[PROJECT_WORKFLOW.md](file:///c:/Users/HP/Major_Project-_27/PROJECT_WORKFLOW.md)** — High-level architecture and quickstart guide.
