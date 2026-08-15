@@ -63,6 +63,13 @@ gs://major-project-55fe0.firebasestorage.app/
 
 ## 4. Deep Learning AI Inference Pipeline (FastAPI / TensorFlow)
 
+BrainTumorAI is designated as an **AI-Powered** platform because it combines three deep learning subsystems into an automated, explainable clinical workflow:
+
+1. **AI Classification (`EfficientNetB3`)**: Fine-tuned convolutional neural network automatically categorizing scans into 4 classes (`glioma`, `meningioma`, `pituitary`, `notumor`) with confidence probability vectors.
+2. **Explainable AI Thermal Maps (`Grad-CAM`)**: Gradient-weighted Class Activation Mapping extracting spatial attention maps from layer `top_conv` overlaid with OpenCV Jet Colormaps.
+3. **Neural Segmentation (`Attention U-Net`)**: Attention-gated encoder-decoder network isolating binary tumor boundaries.
+4. **Morphological Analytics**: Automated post-processing computing real-world tumor surface area ($\text{mm}^2$), bounding boxes, and severity staging.
+
 When a doctor uploads an MRI scan on the **Add Patient** page, the following pipeline executes:
 
 ### Step A: Input MRI Upload & Cloud Sync

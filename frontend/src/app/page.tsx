@@ -1,13 +1,84 @@
 import Link from "next/link";
-import { Brain, Activity, FileText, ShieldCheck, ArrowRight, CheckCircle2, Stethoscope, Layers, Flame, Target, Cpu, Database, Network } from "lucide-react";
+import { 
+  Brain, 
+  Flame, 
+  Target, 
+  ShieldCheck, 
+  ArrowRight, 
+  Stethoscope, 
+  Layers, 
+  Activity 
+} from "lucide-react";
 
 export default function Home() {
+  const featureCards = [
+    {
+      icon: Brain,
+      badge: "AI Classification",
+      title: "Multi-Class Classification",
+      description: "Automated MRI scan analysis detecting Glioma, Meningioma, Pituitary, or Normal tissue with high precision.",
+      iconBg: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+    },
+    {
+      icon: Flame,
+      badge: "Explainable AI",
+      title: "Grad-CAM Thermal Maps",
+      description: "Visual heatmaps overlaying MRI scans to pinpoint exact regions influencing the AI's diagnostic decision.",
+      iconBg: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    },
+    {
+      icon: Target,
+      badge: "Precision Metrics",
+      title: "Attention U-Net Segmentation",
+      description: "Accurate lesion boundary extraction and real-time surface area calculation (mm²) for clinical reporting.",
+      iconBg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    },
+    {
+      icon: Layers,
+      badge: "Clinical Management",
+      title: "Patient Scan Archives",
+      description: "Centralized doctor workstation for managing patient records, scan history, and clinical reports.",
+      iconBg: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+    },
+  ];
+
+  const categoryCards = [
+    {
+      id: "01",
+      title: "Glioma Tumor",
+      category: "Malignant / Benign",
+      tagColor: "text-red-400 bg-red-500/10 border-red-500/20",
+      description: "Originates in glial supportive brain tissue. Early AI identification helps guide targeted treatment strategies.",
+    },
+    {
+      id: "02",
+      title: "Meningioma",
+      category: "Meningeal Layers",
+      tagColor: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+      description: "Arises from protective membranes surrounding the brain. Tracked with precise surface area boundaries.",
+    },
+    {
+      id: "03",
+      title: "Pituitary Tumor",
+      category: "Endocrine System",
+      tagColor: "text-purple-400 bg-purple-500/10 border-purple-500/20",
+      description: "Develops in the pituitary gland. Heatmaps assist in distinguishing subtle glandular structural variations.",
+    },
+    {
+      id: "04",
+      title: "Normal (No Tumor)",
+      category: "Healthy Tissue",
+      tagColor: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+      description: "Healthy MRI tissue showing clear anatomical structures without detected abnormal tumor masses.",
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 font-sans flex flex-col justify-between selection:bg-sky-600 selection:text-white">
       {/* Navbar */}
       <nav className="flex justify-between items-center px-8 py-5 border-b border-slate-800/80 bg-[#0B0F17]/90 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-sky-600 flex items-center justify-center text-white shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-sky-400 flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
             <Brain className="w-5 h-5" />
           </div>
           <span className="text-xl font-bold tracking-tight text-white">
@@ -25,181 +96,121 @@ export default function Home() {
 
           <Link
             href="/signup"
-            className="px-5 py-2 rounded-lg text-xs font-semibold bg-sky-600 text-white hover:bg-sky-500 transition-all shadow-sm active:scale-[0.98]"
+            className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-sky-600 text-white hover:bg-sky-500 transition-all shadow-md shadow-sky-600/20 active:scale-[0.98]"
           >
             Doctor Registration
           </Link>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <main className="flex-1 flex flex-col items-center justify-center text-center px-6 pt-16 pb-12 max-w-5xl mx-auto w-full">
+      {/* Main Container */}
+      <main className="flex-1 flex flex-col items-center justify-center text-center px-6 pt-14 pb-16 max-w-6xl mx-auto w-full">
+        {/* Hero Section */}
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight mb-6 leading-tight text-white">
-          Brain Tumor Classification & <br />
-          <span className="text-sky-400">Segmentation Platform</span>
+          AI-Powered Brain Tumor <br />
+          <span className="bg-gradient-to-r from-sky-400 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
+            Classification & Segmentation
+          </span>
         </h1>
 
         <p className="text-slate-400 text-base sm:text-lg max-w-2xl mb-10 leading-relaxed font-normal">
-          An integrated clinical workstation for neuro-oncology. Analyze brain MRI scans using 
-          EfficientNetB3 multi-class classification, Grad-CAM heatmaps, and Attention U-Net tumor segmentation.
+          Streamlined MRI scan analysis, instant explainable heatmaps, and lesion area quantification built specifically for clinical workflows.
         </p>
 
         {/* CTA Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto mb-16">
           <Link
             href="/login"
-            className="bg-sky-600 hover:bg-sky-500 text-white px-7 py-3 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
+            className="bg-sky-600 hover:bg-sky-500 text-white px-7 py-3.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-sky-600/25 active:scale-[0.98]"
           >
             Launch Workstation <ArrowRight className="w-4 h-4" />
           </Link>
 
           <Link
             href="/signup"
-            className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 px-7 py-3 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+            className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-700 px-7 py-3.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
           >
             <Stethoscope className="w-4 h-4 text-sky-400" /> Create Doctor Account
           </Link>
         </div>
 
-        {/* Real AI Model Architecture & Pipeline Technical Card */}
-        <div className="w-full bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 mb-16 text-left shadow-sm">
-          <div className="flex items-center justify-between mb-5 border-b border-slate-800 pb-3">
-            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-              <Cpu className="w-4 h-4 text-sky-400" /> Deep Learning Model Specifications & Pipeline
-            </span>
-            <span className="text-[11px] text-sky-400 font-semibold px-2.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">
-              FastAPI + TensorFlow 2.x
-            </span>
+        {/* Core Capabilities Cards Grid */}
+        <div className="w-full text-left mb-16">
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+              <Activity className="w-5 h-5 text-sky-400" /> Key Platform Capabilities
+            </h2>
+            <p className="text-slate-400 text-xs mt-1">Core intelligent diagnostic tools integrated into your workstation.</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-4">
-            {/* Classification Model */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2 text-white font-bold text-xs">
-                  <Brain className="w-4 h-4 text-sky-400" /> EfficientNetB3 Classifier
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {featureCards.map((card, idx) => {
+              const IconComponent = card.icon;
+              return (
+                <div
+                  key={idx}
+                  className="group relative p-6 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-sky-500/40 hover:bg-slate-900/70 transition-all duration-300 shadow-sm hover:shadow-xl hover:shadow-sky-500/5 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className={`p-2.5 rounded-xl border ${card.iconBg}`}>
+                        <IconComponent className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+                        {card.badge}
+                      </span>
+                    </div>
+
+                    <h3 className="text-base font-bold text-white mb-2 group-hover:text-sky-300 transition-colors">
+                      {card.title}
+                    </h3>
+                    <p className="text-slate-400 text-xs leading-relaxed">
+                      {card.description}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Input resolution: <code className="text-sky-300">300x300x3</code>. Custom classification top with 
-                  GlobalAveragePooling2D, Batch Normalization, Dropout (0.4/0.3), 256-Dense ReLU, and Softmax activation.
-                </p>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-900 text-[10px] text-slate-500 font-medium">
-                Output: 4-Class Probability Vector
-              </div>
-            </div>
-
-            {/* Grad-CAM Heatmap */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2 text-white font-bold text-xs">
-                  <Flame className="w-4 h-4 text-amber-400" /> Grad-CAM Explainability
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Extracts feature gradients from final convolutional layer <code className="text-amber-300 font-mono">top_conv</code>. 
-                  Computes weighted class activation maps and applies OpenCV Jet Colormap overlay onto MRI pixels.
-                </p>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-900 text-[10px] text-slate-500 font-medium">
-                Output: Visual Thermal Attention Map
-              </div>
-            </div>
-
-            {/* Attention U-Net Segmenter */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2 text-white font-bold text-xs">
-                  <Target className="w-4 h-4 text-emerald-400" /> Attention U-Net Segmenter
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Input resolution: <code className="text-emerald-300">256x256x1</code>. Encoder-decoder with Attention Gates 
-                  generating binary tumor masks to calculate morphological lesion area (<code className="text-emerald-300 font-mono">mm²</code>).
-                </p>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-900 text-[10px] text-slate-500 font-medium">
-                Output: Contour Boundary & Surface Area ($mm^2$)
-              </div>
-            </div>
-          </div>
-
-          {/* Cloud Storage & Database Architecture Row */}
-          <div className="mt-4 pt-4 border-t border-slate-800 grid sm:grid-cols-2 gap-4 text-xs">
-            <div className="flex items-center gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800/60">
-              <div className="p-2 bg-sky-500/10 rounded-lg text-sky-400">
-                <Network className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="font-bold text-white text-[11px]">Firebase Storage Asset Hierarchy</p>
-                <p className="text-[10px] text-slate-400">Per-doctor folder trees (<code className="text-sky-300">doctors/email/patients/timestamp/</code>)</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800/60">
-              <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
-                <Database className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="font-bold text-white text-[11px]">MongoDB Atlas Metadata Persistence</p>
-                <p className="text-[10px] text-slate-400">Stores patient history, tumor size, class probabilities & image URLs</p>
-              </div>
-            </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* 4 Types of Brain Tumor Classification Section */}
+        {/* Classification Categories Cards Grid */}
         <div className="w-full text-left">
           <div className="mb-6">
-            <h2 className="text-xl font-bold text-white tracking-tight">Tumor Classification Categories</h2>
-            <p className="text-slate-400 text-xs mt-1">Diagnostic classes supported by the automated classification model:</p>
+            <h2 className="text-xl font-bold text-white tracking-tight">Tumor Diagnostic Classes</h2>
+            <p className="text-slate-400 text-xs mt-1">Supported categories for automated multi-class MRI identification:</p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
-            <div className="p-5 rounded-xl bg-slate-900/50 border border-slate-800/80 hover:border-slate-700 transition-all">
-              <span className="text-[10px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
-                Class 01
-              </span>
-              <h3 className="text-base font-bold text-white mt-3">Glioma Tumor</h3>
-              <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                Tumor originating in glial supportive tissue surrounding neurons in brain tissue.
-              </p>
-            </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 w-full">
+            {categoryCards.map((cat) => (
+              <div
+                key={cat.id}
+                className="group p-6 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/70 transition-all duration-300 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border ${cat.tagColor}`}>
+                      Class {cat.id}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-medium">{cat.category}</span>
+                  </div>
 
-            <div className="p-5 rounded-xl bg-slate-900/50 border border-slate-800/80 hover:border-slate-700 transition-all">
-              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                Class 02
-              </span>
-              <h3 className="text-base font-bold text-white mt-3">Meningioma</h3>
-              <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                Tumor arising from the meningeal membranes surrounding the brain.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-xl bg-slate-900/50 border border-slate-800/80 hover:border-slate-700 transition-all">
-              <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                Class 03
-              </span>
-              <h3 className="text-base font-bold text-white mt-3">Pituitary Tumor</h3>
-              <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                Neoplasm located in the pituitary gland impacting hormone secretion.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-xl bg-slate-900/50 border border-slate-800/80 hover:border-slate-700 transition-all">
-              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                Class 04
-              </span>
-              <h3 className="text-base font-bold text-white mt-3">No Tumor (Normal)</h3>
-              <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                Healthy brain MRI tissue with no structural tumor mass detected.
-              </p>
-            </div>
+                  <h3 className="text-base font-bold text-white mb-2 group-hover:text-sky-400 transition-colors">
+                    {cat.title}
+                  </h3>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    {cat.description}
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </main>
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-6 text-slate-500 text-xs bg-[#0B0F17]">
-        <div className="max-w-5xl mx-auto px-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="max-w-6xl mx-auto px-8 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-sky-400" />
             <span>BrainTumorAI Clinical Workstation</span>
