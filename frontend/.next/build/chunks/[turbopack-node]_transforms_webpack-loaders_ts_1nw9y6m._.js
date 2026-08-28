@@ -3,7 +3,7 @@ module.exports = [
 
 __turbopack_context__.v((parentImport) => {
     return Promise.all([
-  "chunks/[root-of-the-server]__0x8m--0._.js"
+  "chunks/[root-of-the-server]__0dhog6e._.js"
 ].map((chunk) => __turbopack_context__.l(chunk))).then(() => {
         return parentImport("[turbopack-node]/transforms/webpack-loaders.ts [webpack_loaders] (ecmascript)");
     });

@@ -10,7 +10,6 @@
   "/dashboard/patient/[id]/page": "app/dashboard/patient/[id]/page.js",
   "/dashboard/patients/page": "app/dashboard/patients/page.js",
   "/dashboard/profile/page": "app/dashboard/profile/page.js",
-  "/favicon.ico/route": "app/favicon.ico/route.js",
   "/login/page": "app/login/page.js",
   "/page": "app/page.js",
   "/signup/page": "app/signup/page.js"

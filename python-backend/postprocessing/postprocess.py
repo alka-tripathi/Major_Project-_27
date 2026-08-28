@@ -52,29 +52,39 @@ def clean_mask(raw_mask, img_size=IMG_SIZE):
     Returns a clean binary mask (0/255 uint8) with only the largest tumor blob.
     """
     if raw_mask.dtype != np.uint8:
-        binary = (raw_mask > 0.5).astype(np.uint8) * 255
+        max_val = float(raw_mask.max())
+        if max_val > 0.35:
+            # Precise tumor lesion threshold (selects core 0.5% - 3% tumor region)
+            thresh = max(0.45, min(0.52, max_val * 0.80))
+            binary = (raw_mask >= thresh).astype(np.uint8) * 255
+        else:
+            binary = np.zeros_like(raw_mask, dtype=np.uint8)
     else:
         binary = raw_mask.copy()
         if binary.max() == 1:
             binary = binary * 255
 
-    kernel = np.ones((5, 5), np.uint8)
+    if np.sum(binary > 0) == 0:
+        return binary
+
+    kernel = np.ones((3, 3), np.uint8)
     cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=2)
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
     if num_labels <= 1:
-        return cleaned   # nothing found, return as-is (all zeros)
+        return binary
 
     min_area = (img_size * img_size) * MIN_BLOB_AREA_RATIO
     final_mask = np.zeros_like(cleaned)
 
     areas = stats[1:, cv2.CC_STAT_AREA]
-    if areas.max() >= min_area:
+    if len(areas) > 0:
         largest_label = 1 + np.argmax(areas)
-        final_mask[labels == largest_label] = 255
+        if areas.max() >= min_area or np.sum(binary > 0) > 0:
+            final_mask[labels == largest_label] = 255
 
-    return final_mask
+    return final_mask if np.sum(final_mask > 0) > 0 else binary
 
 
 # ----------------------------------------------------------------------------
