@@ -10,7 +10,6 @@
   "/dashboard/patient/[id]/page": "/dashboard/patient/[id]",
   "/dashboard/patients/page": "/dashboard/patients",
   "/dashboard/profile/page": "/dashboard/profile",
-  "/favicon.ico/route": "/favicon.ico",
   "/login/page": "/login",
   "/page": "/",
   "/signup/page": "/signup"
