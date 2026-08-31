@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, User, Brain, Target, Ruler } from "lucide-react";
+import { ArrowLeft, User, Brain, Target, Ruler, Flame } from "lucide-react";
 
 export default function PatientDetailsPage() {
   const router = useRouter();
@@ -141,13 +141,13 @@ export default function PatientDetailsPage() {
           </div>
         </div>
 
-        {/* 2 MRI Image Visual Assets */}
+        {/* 3 MRI Image Visual Assets */}
         <div className="bg-slate-900/70 border border-slate-800/80 backdrop-blur-md rounded-3xl p-8 lg:p-10 shadow-sm space-y-6">
           <h2 className="text-lg font-bold text-white flex items-center gap-2.5">
             <Brain className="w-5 h-5 text-sky-400" /> Image Visualizations
           </h2>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-3 gap-6">
             <div className="flex flex-col">
               <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
                 <Brain className="w-4 h-4 text-slate-400" /> Original Input MRI
@@ -163,11 +163,24 @@ export default function PatientDetailsPage() {
 
             <div className="flex flex-col">
               <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
+                <Flame className="w-4 h-4 text-orange-400" /> Grad-CAM Heatmap
+              </h3>
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
+                <img
+                  src={patient.heatmapPath || patient.imagePath}
+                  alt="Grad-CAM Heatmap"
+                  className="w-full h-80 object-contain rounded-xl bg-black"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col">
+              <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
                 <Target className="w-4 h-4 text-emerald-400" /> Attention U-Net Mask
               </h3>
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
                 <img
-                  src={patient.segmentationPath}
+                  src={patient.segmentationPath || patient.imagePath}
                   alt="Segmentation"
                   className="w-full h-80 object-contain rounded-xl bg-black"
                 />
@@ -176,28 +189,43 @@ export default function PatientDetailsPage() {
           </div>
         </div>
 
-        {/* Morphological Measurements */}
-        {patient.tumorDetected && (
-          <div className="bg-slate-900/70 border border-slate-800/80 backdrop-blur-md rounded-3xl p-8 lg:p-10 shadow-sm space-y-6">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2.5">
-              <Ruler className="w-5 h-5 text-sky-400" /> Tumor Lesion Measurements
-            </h2>
-            <div className="grid grid-cols-2 gap-6">
-              <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
-                <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Estimated Lesion Area</p>
-                <h3 className="text-2xl lg:text-3xl font-extrabold mt-2 text-white">
-                  {patient.tumorSize?.area ?? 348.5} <span className="text-sm font-normal text-slate-400">mm²</span>
-                </h3>
-              </div>
-              <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
-                <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Clinical Recommendation</p>
-                <h3 className="text-sm font-semibold mt-2 text-amber-400">
-                  {patient.severity === "Low" ? "Schedule 3-Month Follow-Up MRI" : "Immediate Neurological Specialist Consultation"}
-                </h3>
-              </div>
+        {/* Morphological Measurements & Clinical Recommendation */}
+        <div className="bg-slate-900/70 border border-slate-800/80 backdrop-blur-md rounded-3xl p-8 lg:p-10 shadow-sm space-y-6">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2.5">
+            <Ruler className="w-5 h-5 text-sky-400" /> Tumor Lesion Analytics & Clinical Action Plan
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
+              <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Estimated Lesion Area</p>
+              <h3 className="text-2xl lg:text-3xl font-extrabold mt-2 text-white">
+                {patient.tumorSize?.area ?? 0} <span className="text-sm font-normal text-slate-400">mm²</span>
+              </h3>
+            </div>
+            <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
+              <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Diagnostic Urgency</p>
+              <h3 className={`text-xl font-bold mt-2 ${
+                patient.severity === "High" ? "text-red-400" :
+                patient.severity === "Medium" ? "text-orange-400" :
+                patient.severity === "Low" ? "text-amber-400" : "text-emerald-400"
+              }`}>
+                {patient.severity === "High" ? "High Priority / Urgent" :
+                 patient.severity === "Medium" ? "Moderate Priority" :
+                 patient.severity === "Low" ? "Elective / Routine" : "Normal / Routine"}
+              </h3>
             </div>
           </div>
-        )}
+
+          <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Personalized Clinical Recommendation (Age & Pathology Adapted)</p>
+            <p className="text-sm font-medium text-slate-200 mt-2 leading-relaxed bg-slate-900/90 border border-slate-800/80 p-4 rounded-xl">
+              {patient.recommendation || (
+                patient.tumorDetected 
+                  ? "Immediate Neurological Specialist Consultation and volumetric MRI follow-up recommended." 
+                  : "Routine clinical follow-up as indicated. No acute space-occupying lesion identified."
+              )}
+            </p>
+          </div>
+        </div>
       </main>
     </div>
   );

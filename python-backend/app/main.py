@@ -252,6 +252,11 @@ async def predict(file: UploadFile = File(...)):
     # ---- Early exit: no tumor detected ----
     if pred_class == "notumor":
         response["tumor_detected"] = False
+        response["tumor_size_mm2"] = 0.0
+        response["stage"] = "None"
+        clean_img_b64 = encode_image_to_base64(raw_img_rgb)
+        response["gradcam_overlay_base64"] = clean_img_b64
+        response["segmentation_overlay_base64"] = clean_img_b64
         return JSONResponse(content=response)
 
     response["tumor_detected"] = True
