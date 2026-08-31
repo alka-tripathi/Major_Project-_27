@@ -81,7 +81,7 @@ export default function PatientDetailsPage() {
 
       {/* Main Container - Widescreen & Breathable */}
       <main className="max-w-[1360px] mx-auto px-8 lg:px-16 pt-12 relative z-10 space-y-8">
-        
+
         {/* Header Patient Card */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 bg-slate-900/70 border border-slate-800/80 backdrop-blur-md rounded-3xl p-8 lg:p-10 shadow-sm">
           <div className="flex items-center gap-5">
@@ -127,11 +127,10 @@ export default function PatientDetailsPage() {
 
           <div className="bg-slate-900/70 border border-slate-800/80 p-6 rounded-2xl">
             <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Severity Rating</p>
-            <h3 className={`text-2xl font-bold mt-2 ${
-              patient.severity === 'Low' ? 'text-amber-400' :
-              patient.severity === 'Medium' ? 'text-orange-400' :
-              patient.severity === 'High' ? 'text-red-400' : 'text-emerald-400'
-            }`}>
+            <h3 className={`text-2xl font-bold mt-2 ${patient.severity === 'Low' ? 'text-amber-400' :
+                patient.severity === 'Medium' ? 'text-orange-400' :
+                  patient.severity === 'High' ? 'text-red-400' : 'text-emerald-400'
+              }`}>
               {patient.severity || "None"}
             </h3>
           </div>

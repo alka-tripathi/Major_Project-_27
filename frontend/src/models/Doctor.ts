@@ -54,9 +54,5 @@ const doctorSchema = new Schema<IDoctor>(
   }
 );
 
-if (mongoose.models.Doctor) {
-  delete mongoose.models.Doctor;
-}
-
 const Doctor: Model<IDoctor> = mongoose.models.Doctor || mongoose.model<IDoctor>("Doctor", doctorSchema);
 export default Doctor;

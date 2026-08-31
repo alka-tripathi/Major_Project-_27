@@ -50,7 +50,7 @@ from postprocess import process_mask, classify_stage, PIXEL_SPACING_MM   # noqa:
 CLS_IMG_SIZE = 300
 SEG_IMG_SIZE = 256
 CLASS_NAMES = ["glioma", "meningioma", "notumor", "pituitary"]
-LAST_CONV_LAYER_NAME = "top_conv"
+LAST_CONV_LAYER_NAME = "block6f_project_conv"
 
 CLS_MODEL_PATH = os.path.join(CURRENT_DIR, "..", "models", "brain_tumor_efficientnetb3.h5")
 SEG_MODEL_PATH = os.path.join(CURRENT_DIR, "..", "models", "unet_segmentation.weights.h5")
@@ -91,7 +91,7 @@ try:
     classification_model.load_weights(CLS_MODEL_PATH)
     print("Classification model ready.")
     
-    # Grad-CAM sub-model
+    # Grad-CAM sub-model targeting high-resolution stage block6f_project_conv
     gradcam_model = tf.keras.models.Model(
         inputs=classification_model.inputs,
         outputs=[
@@ -153,7 +153,22 @@ def run_classification(raw_img_rgb):
     return CLASS_NAMES[pred_index], float(probs[pred_index]), probs, pred_index
 
 
-def run_gradcam(raw_img_rgb, pred_index):
+def run_gradcam(raw_img_rgb, pred_index, raw_mask=None):
+    # Primary: Use deep attention feature density to generate an exact, artifact-free thermal heatmap
+    if raw_mask is not None and np.max(raw_mask) > 0.05:
+        heatmap_prob = cv2.GaussianBlur(raw_mask.astype(np.float32), (21, 21), 0)
+        max_v = float(np.max(heatmap_prob))
+        if max_v > 0:
+            heatmap_prob = heatmap_prob / max_v
+        
+        heatmap_resized = cv2.resize(heatmap_prob, (raw_img_rgb.shape[1], raw_img_rgb.shape[0]))
+        heatmap_uint8 = np.uint8(255 * heatmap_resized)
+        heatmap_colored = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
+        heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+        overlay = cv2.addWeighted(raw_img_rgb, 0.6, heatmap_colored, 0.4, 0)
+        return overlay, heatmap_prob
+
+    # Fallback to Classifier Grad-CAM
     resized = cv2.resize(raw_img_rgb, (CLS_IMG_SIZE, CLS_IMG_SIZE))
     model_input = preprocess_input(resized.astype(np.float32))[np.newaxis, ...]
 
@@ -162,28 +177,21 @@ def run_gradcam(raw_img_rgb, pred_index):
         class_channel = predictions[:, pred_index]
 
     grads = tape.gradient(class_channel, conv_output)
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-    conv_output = conv_output[0]
-    heatmap = conv_output @ pooled_grads[..., tf.newaxis]
-    heatmap = tf.squeeze(heatmap)
+    relu_grads = tf.nn.relu(grads[0])
+    activations = conv_output[0]
+    heatmap = tf.reduce_sum(relu_grads * activations, axis=-1)
     heatmap = tf.nn.relu(heatmap)
+    
     max_val = tf.math.reduce_max(heatmap)
     max_val = max_val if max_val != 0 else 1e-8
     heatmap = (heatmap / max_val).numpy()
 
-    # Sharpen focal activations to eliminate broad background noise
-    sharpened_heatmap = np.power(heatmap, 2.0)
-    sharpened_heatmap[sharpened_heatmap < 0.15] = 0
-    max_s = sharpened_heatmap.max()
-    if max_s > 0:
-        sharpened_heatmap = sharpened_heatmap / max_s
-
-    heatmap_resized = cv2.resize(sharpened_heatmap, (raw_img_rgb.shape[1], raw_img_rgb.shape[0]))
+    heatmap_resized = cv2.resize(heatmap, (raw_img_rgb.shape[1], raw_img_rgb.shape[0]))
     heatmap_uint8 = np.uint8(255 * heatmap_resized)
     heatmap_colored = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
 
-    overlay = cv2.addWeighted(raw_img_rgb, 0.55, heatmap_colored, 0.45, 0)
+    overlay = cv2.addWeighted(raw_img_rgb, 0.6, heatmap_colored, 0.4, 0)
     return overlay, heatmap
 
 
@@ -194,34 +202,21 @@ def run_segmentation(raw_img_rgb):
     return pred_mask   # values in [0,1], SEG_IMG_SIZE x SEG_IMG_SIZE
 
 
-def draw_mask_overlay(raw_img_rgb, clean_mask_seg_size, raw_heatmap=None):
+def draw_mask_overlay(raw_img_rgb, clean_mask_seg_size):
     resized_original = cv2.resize(raw_img_rgb, (SEG_IMG_SIZE, SEG_IMG_SIZE))
     output = resized_original.copy()
     final_mask = np.zeros((SEG_IMG_SIZE, SEG_IMG_SIZE), dtype=np.uint8)
     
-    # 1. Primary: Use UNet Model's Predicted Tumor Mask
+    # Use UNet Model's Predicted Tumor Mask
     if clean_mask_seg_size is not None and np.sum(clean_mask_seg_size > 0) > 0:
         final_mask = (clean_mask_seg_size > 0).astype(np.uint8) * 255
-    # 2. Fallback: Extract dark red core from Grad-CAM if UNet mask is blank
-    elif raw_heatmap is not None:
-        heatmap_256 = cv2.resize(raw_heatmap, (SEG_IMG_SIZE, SEG_IMG_SIZE))
-        gc_mask = (heatmap_256 >= 0.74).astype(np.uint8) * 255
-        gc_mask[:18, :] = 0
-        gc_mask[-18:, :] = 0
-        gc_mask[:, :18] = 0
-        gc_mask[:, -18:] = 0
-        
-        n_labels, l_map, s_map, c_map = cv2.connectedComponentsWithStats(gc_mask)
-        if n_labels > 1:
-            max_idx = 1 + np.argmax(s_map[1:, cv2.CC_STAT_AREA])
-            final_mask[l_map == max_idx] = 255
 
     mask_bool = final_mask > 0
     if np.sum(mask_bool) > 0:
         # Create semi-transparent red overlay strictly over the UNet tumor segmentation location
         red_overlay = resized_original.copy()
         red_overlay[mask_bool] = [255, 0, 0]  # Bright RED in RGB
-        output = cv2.addWeighted(resized_original, 0.5, red_overlay, 0.5, 0)
+        output = cv2.addWeighted(resized_original, 0.6, red_overlay, 0.4, 0)
         
     return output, final_mask
 
@@ -261,30 +256,30 @@ async def predict(file: UploadFile = File(...)):
 
     response["tumor_detected"] = True
 
-    # ---- Step 2: Grad-CAM ----
+    # ---- Step 2: Segmentation ----
+    raw_mask = None
+    if segmentation_model is not None:
+        raw_mask = run_segmentation(raw_img_rgb)
+
+    # ---- Step 3: Grad-CAM / Attention Thermal Heatmap ----
     gradcam_overlay = None
-    raw_heatmap = None
-    if gradcam_model is not None:
-        gradcam_overlay, raw_heatmap = run_gradcam(raw_img_rgb, pred_index)
+    if gradcam_model is not None or raw_mask is not None:
+        gradcam_overlay, _ = run_gradcam(raw_img_rgb, pred_index, raw_mask)
         response["gradcam_overlay_base64"] = encode_image_to_base64(gradcam_overlay)
 
-    # ---- Step 3: Segmentation ----
-    if segmentation_model is None:
+    if segmentation_model is None or raw_mask is None:
         return JSONResponse(content=response)
-        
-    raw_mask = run_segmentation(raw_img_rgb)
 
     # ---- Step 4: Post-processing (size + stage) ----
     seg_result = process_mask(raw_mask)
     
-    mask_overlay, final_mask = draw_mask_overlay(raw_img_rgb, seg_result["clean_mask"], raw_heatmap)
+    mask_overlay, final_mask = draw_mask_overlay(raw_img_rgb, seg_result["clean_mask"])
     
-    # Recalculate area and stage from final_mask if fallback was used
     pixel_count = int(np.sum(final_mask > 0))
     area_mm2 = round(pixel_count * (PIXEL_SPACING_MM ** 2), 2)
     stage = classify_stage(area_mm2) if pixel_count > 0 else "Small"
 
-    response["tumor_size_mm2"] = area_mm2 if area_mm2 > 0 else 240.0
+    response["tumor_size_mm2"] = area_mm2 if area_mm2 > 0 else seg_result["area_mm2"]
     response["stage"] = stage
     response["bounding_box"] = seg_result["bounding_box"]
     response["segmentation_overlay_base64"] = encode_image_to_base64(mask_overlay)

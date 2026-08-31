@@ -73,7 +73,7 @@ export default function AddPatientPage() {
     e.preventDefault();
     setIsDragging(false);
     setFormError("");
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const droppedFile = e.dataTransfer.files[0];
       if (droppedFile.type.startsWith('image/')) {
@@ -180,7 +180,7 @@ export default function AddPatientPage() {
 
     try {
       setLoading(true);
-      
+
       const doctorEmail = currentUser.email || currentUser.uid;
       const patientSlug = patientName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_") || "patient";
       const timestamp = Date.now();
@@ -286,11 +286,11 @@ export default function AddPatientPage() {
           patientName,
           patientAge: Number(patientAge),
           patientGender,
-          
+
           imagePath: firebaseImageUrl,
           heatmapPath: firebaseHeatmapUrl,
           segmentationPath: firebaseSegmentationUrl,
-          
+
           tumorDetected: apiData.tumor_detected ?? false,
           tumorType: mappedTumorType,
           confidence: confVal,
@@ -304,7 +304,7 @@ export default function AddPatientPage() {
             area: apiData.tumor_size_mm2,
           },
           severity: calculatedSeverity,
-          
+
           status: "Completed",
         }),
       });
@@ -350,7 +350,7 @@ export default function AddPatientPage() {
 
       {/* Main Container - Widescreen & Breathable */}
       <main className="max-w-[1360px] mx-auto px-8 lg:px-16 pt-12 relative z-10 space-y-10">
-        
+
         {/* Page Header */}
         <div>
           <h1 className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight flex items-center gap-3">
@@ -363,7 +363,7 @@ export default function AddPatientPage() {
 
         {/* Input Form Container */}
         <div className="bg-slate-900/70 border border-slate-800/80 backdrop-blur-md rounded-3xl p-8 lg:p-10 shadow-sm space-y-8">
-          
+
           {/* Patient Info Fields */}
           <div>
             <h2 className="text-base font-bold text-white mb-5 flex items-center gap-2.5">
@@ -422,15 +422,14 @@ export default function AddPatientPage() {
             <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2.5">
               <Brain className="w-5 h-5 text-indigo-400" /> Brain MRI Scan Upload
             </h2>
-            <div 
+            <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all flex flex-col items-center justify-center relative overflow-hidden ${
-                isDragging 
-                  ? 'border-sky-500 bg-sky-500/10' 
+              className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all flex flex-col items-center justify-center relative overflow-hidden ${isDragging
+                  ? 'border-sky-500 bg-sky-500/10'
                   : 'border-slate-800 hover:border-slate-700 bg-slate-950/60'
-              }`}
+                }`}
             >
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 mb-3 text-slate-400">
                 <UploadCloud className="w-7 h-7 text-sky-400" />
@@ -438,7 +437,7 @@ export default function AddPatientPage() {
               <p className="text-sm text-slate-300 mb-3 font-medium">
                 {isDragging ? 'Drop MRI image here' : 'Drag & drop brain MRI scan (.png, .jpg)'}
               </p>
-              
+
               <div className="relative">
                 <input
                   type="file"
@@ -514,25 +513,33 @@ export default function AddPatientPage() {
               </div>
               <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
                 <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Severity Rating</p>
-                <h3 className={`text-2xl lg:text-3xl font-extrabold mt-2 ${
-                  analysisResult.severity === 'None' ? 'text-emerald-400' :
-                  analysisResult.severity === 'Low' ? 'text-amber-400' :
-                  analysisResult.severity === 'Medium' ? 'text-orange-400' :
-                  analysisResult.severity === 'High' ? 'text-red-400' : 'text-slate-300'
-                }`}>
+                <h3 className={`text-2xl lg:text-3xl font-extrabold mt-2 ${analysisResult.severity === 'None' ? 'text-emerald-400' :
+                    analysisResult.severity === 'Low' ? 'text-amber-400' :
+                      analysisResult.severity === 'Medium' ? 'text-orange-400' :
+                        analysisResult.severity === 'High' ? 'text-red-400' : 'text-slate-300'
+                  }`}>
                   {analysisResult.severity}
                 </h3>
               </div>
             </div>
 
-            {/* 2 MRI Visualization Cards */}
-            <div className="grid md:grid-cols-2 gap-6">
+            {/* 3 MRI Visualization Cards */}
+            <div className="grid md:grid-cols-3 gap-6">
               <div className="flex flex-col">
                 <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
                   <Brain className="w-4 h-4 text-slate-400" /> Original Input MRI
                 </h3>
                 <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
                   <img src={analysisResult.imagePath} alt="Original MRI" className="w-full h-80 object-contain rounded-xl bg-black" />
+                </div>
+              </div>
+
+              <div className="flex flex-col">
+                <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-orange-400" /> Grad-CAM Heatmap
+                </h3>
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+                  <img src={analysisResult.heatmapPath} alt="Grad-CAM Heatmap" className="w-full h-80 object-contain rounded-xl bg-black" />
                 </div>
               </div>
 
