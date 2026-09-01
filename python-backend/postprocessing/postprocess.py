@@ -49,13 +49,13 @@ def clean_mask(raw_mask, img_size=IMG_SIZE):
     """
     raw_mask: 2D numpy array, values in [0, 1] (model's sigmoid output) or
               already binarized (0/255 or 0/1).
-    Returns a clean binary mask (0/255 uint8) with only the largest tumor blob.
+    Returns a clean binary mask (0/255 uint8) with only the primary tumor blob.
     """
     if raw_mask.dtype != np.uint8:
         max_val = float(raw_mask.max())
-        if max_val > 0.35:
-            # Precise tumor lesion threshold (selects core 0.5% - 3% tumor region)
-            thresh = max(0.45, min(0.52, max_val * 0.80))
+        if max_val >= 0.25:
+            # Robust thresholding matching evaluate_unet.py benchmark
+            thresh = 0.40 if max_val >= 0.45 else (max_val * 0.75)
             binary = (raw_mask >= thresh).astype(np.uint8) * 255
         else:
             binary = np.zeros_like(raw_mask, dtype=np.uint8)
@@ -67,24 +67,23 @@ def clean_mask(raw_mask, img_size=IMG_SIZE):
     if np.sum(binary > 0) == 0:
         return binary
 
+    # Light morphological cleanup to fill internal holes without eroding boundaries
     kernel = np.ones((3, 3), np.uint8)
-    cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=2)
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
     if num_labels <= 1:
-        return binary
+        return cleaned
 
-    min_area = (img_size * img_size) * MIN_BLOB_AREA_RATIO
-    final_mask = np.zeros_like(cleaned)
-
+    # Keep largest component
     areas = stats[1:, cv2.CC_STAT_AREA]
     if len(areas) > 0:
         largest_label = 1 + np.argmax(areas)
-        if areas.max() >= min_area or np.sum(binary > 0) > 0:
-            final_mask[labels == largest_label] = 255
+        final_mask = np.zeros_like(cleaned)
+        final_mask[labels == largest_label] = 255
+        return final_mask
 
-    return final_mask if np.sum(final_mask > 0) > 0 else binary
+    return cleaned
 
 
 # ----------------------------------------------------------------------------

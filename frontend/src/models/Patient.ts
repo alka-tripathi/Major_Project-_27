@@ -42,6 +42,7 @@ export const patientSchema = new Schema<IPatient>(
     doctorId: {
       type: String,
       required: true,
+      index: true,
     },
     patientName: {
       type: String,

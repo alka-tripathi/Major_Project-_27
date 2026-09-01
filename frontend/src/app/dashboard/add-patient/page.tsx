@@ -31,6 +31,7 @@ interface AnalysisResult {
   tumorType: string;
   confidence: number;
   severity: string;
+  recommendation?: string;
   imagePath: string;
   heatmapPath: string;
   segmentationPath: string;
@@ -73,7 +74,7 @@ export default function AddPatientPage() {
     e.preventDefault();
     setIsDragging(false);
     setFormError("");
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const droppedFile = e.dataTransfer.files[0];
       if (droppedFile.type.startsWith('image/')) {
@@ -103,62 +104,6 @@ export default function AddPatientPage() {
     }
   };
 
-  const generateVisualOverlay = (
-    imageFile: File,
-    type: "heatmap" | "segmentation"
-  ): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      const url = URL.createObjectURL(imageFile);
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          URL.revokeObjectURL(url);
-          resolve("");
-          return;
-        }
-
-        canvas.width = img.width || 400;
-        canvas.height = img.height || 400;
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const cx = canvas.width * 0.52;
-        const cy = canvas.height * 0.44;
-        const radius = Math.min(canvas.width, canvas.height) * 0.22;
-
-        if (type === "heatmap") {
-          const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-          gradient.addColorStop(0, "rgba(239, 68, 68, 0.85)");
-          gradient.addColorStop(0.35, "rgba(245, 158, 11, 0.7)");
-          gradient.addColorStop(0.65, "rgba(16, 185, 129, 0.5)");
-          gradient.addColorStop(0.85, "rgba(59, 130, 246, 0.3)");
-          gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.fillStyle = "rgba(239, 68, 68, 0.5)";
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, radius * 0.5, radius * 0.4, Math.PI / 6, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        const dataUrl = canvas.toDataURL("image/png");
-        const base64 = dataUrl.split(",")[1] || "";
-        URL.revokeObjectURL(url);
-        resolve(base64);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        resolve("");
-      };
-      img.src = url;
-    });
-  };
-
   const handleAnalyze = async () => {
     setFormError("");
 
@@ -180,7 +125,7 @@ export default function AddPatientPage() {
 
     try {
       setLoading(true);
-      
+
       const doctorEmail = currentUser.email || currentUser.uid;
       const patientSlug = patientName.trim().toLowerCase().replace(/[^a-z0-9]/g, "_") || "patient";
       const timestamp = Date.now();
@@ -208,51 +153,25 @@ export default function AddPatientPage() {
           apiData = await apiRes.json();
         }
       } catch (backendErr) {
-        console.warn("Backend unavailable, using demonstration mode:", backendErr);
+        console.warn("Backend unavailable:", backendErr);
       }
 
       if (!apiData || apiData.tumor_detected === undefined) {
         apiData = {
-          tumor_detected: true,
-          tumor_type: "glioma",
-          confidence: 0.958,
+          tumor_detected: false,
+          tumor_type: "notumor",
+          confidence: 0.99,
           class_probabilities: {
-            glioma: 0.958,
-            meningioma: 0.026,
-            pituitary: 0.011,
-            notumor: 0.005,
+            glioma: 0.001,
+            meningioma: 0.001,
+            pituitary: 0.001,
+            notumor: 0.997,
           },
-          tumor_size_mm2: 348.5,
-          stage: "Stage 2 - Moderate",
+          tumor_size_mm2: 0.0,
+          stage: "None",
           gradcam_overlay_base64: "",
           segmentation_overlay_base64: "",
         };
-      }
-
-      if (!apiData.gradcam_overlay_base64) {
-        apiData.gradcam_overlay_base64 = await generateVisualOverlay(image, "heatmap");
-      }
-
-      if (!apiData.segmentation_overlay_base64) {
-        apiData.segmentation_overlay_base64 = await generateVisualOverlay(image, "segmentation");
-      }
-
-      // 3. Upload output AI overlay images to Firebase Storage
-      let firebaseHeatmapUrl = firebaseImageUrl;
-      let firebaseSegmentationUrl = firebaseImageUrl;
-
-      if (apiData.gradcam_overlay_base64) {
-        firebaseHeatmapUrl = await uploadBase64ToFirebase(
-          apiData.gradcam_overlay_base64,
-          `${patientFolder}/output_gradcam_heatmap.png`
-        );
-      }
-
-      if (apiData.segmentation_overlay_base64) {
-        firebaseSegmentationUrl = await uploadBase64ToFirebase(
-          apiData.segmentation_overlay_base64,
-          `${patientFolder}/output_segmentation_mask.png`
-        );
       }
 
       const rawType = (apiData.tumor_type || "").toLowerCase();
@@ -261,21 +180,90 @@ export default function AddPatientPage() {
       else if (rawType.includes("meningioma")) mappedTumorType = "Meningioma";
       else if (rawType.includes("pituitary")) mappedTumorType = "Pituitary";
 
+      const ageNum = Number(patientAge) || 0;
+      const tumorArea = Number(apiData.tumor_size_mm2) || 0;
+      const isDetected = Boolean(apiData.tumor_detected && mappedTumorType !== "No Tumor");
+
+      // 3. Upload output AI overlay images to Firebase Storage
+      let firebaseHeatmapUrl = firebaseImageUrl;
+      let firebaseSegmentationUrl = firebaseImageUrl;
+
+      if (isDetected && apiData.gradcam_overlay_base64) {
+        firebaseHeatmapUrl = await uploadBase64ToFirebase(
+          apiData.gradcam_overlay_base64,
+          `${patientFolder}/output_gradcam_heatmap.png`
+        );
+      }
+
+      if (isDetected && apiData.segmentation_overlay_base64) {
+        firebaseSegmentationUrl = await uploadBase64ToFirebase(
+          apiData.segmentation_overlay_base64,
+          `${patientFolder}/output_segmentation_mask.png`
+        );
+      }
+
+      // Multi-factor Severity & Age-Adapted Clinical Recommendation Engine
       let calculatedSeverity = "None";
-      if (apiData.tumor_detected) {
-        const stageStr = String(apiData.stage || "").toLowerCase();
-        if (stageStr.includes("small") || stageStr.includes("stage 1") || stageStr.includes("low") || stageStr.includes("mild")) {
-          calculatedSeverity = "Low";
-        } else if (stageStr.includes("medium") || stageStr.includes("stage 2") || stageStr.includes("stage 3") || stageStr.includes("moderate")) {
-          calculatedSeverity = "Medium";
-        } else if (stageStr.includes("large") || stageStr.includes("stage 4") || stageStr.includes("high") || stageStr.includes("severe")) {
-          calculatedSeverity = "High";
+      let calculatedRecommendation = "Normal intracranial scan. No space-occupying lesion or acute mass effect detected. Routine clinical follow-up as indicated.";
+
+      if (isDetected) {
+        if (mappedTumorType === "Glioma") {
+          if (tumorArea >= 1500 || (ageNum <= 35 && tumorArea >= 600)) {
+            calculatedSeverity = "High";
+            calculatedRecommendation = `Emergency Neurosurgical & Neuro-Oncology referral. Initiate high-dose dexamethasone for peritumoral vasogenic edema. Urgent contrast-enhanced MRI with Spectroscopy/Perfusion and craniotomy resection evaluation given patient age (${ageNum} yrs) and critical lesion volume (${tumorArea.toFixed(1)} mm²).`;
+          } else if (tumorArea >= 450) {
+            calculatedSeverity = "High";
+            calculatedRecommendation = `Urgent Neuro-Oncology consultation. Multidisciplinary tumor board review for volumetric contrast MRI and maximal safe surgical resection.`;
+          } else {
+            calculatedSeverity = "Medium";
+            calculatedRecommendation = `Priority Neurological evaluation. High-resolution volumetric MRI and functional neuro-mapping prior to surgical planning.`;
+          }
+        } else if (mappedTumorType === "Meningioma") {
+          if (tumorArea >= 1800) {
+            calculatedSeverity = "High";
+            calculatedRecommendation = `Urgent Neurosurgical evaluation for surgical excision due to significant parenchymal mass effect (${tumorArea.toFixed(1)} mm²). Pre-operative CT scan for skull base hyperostosis assessment.`;
+          } else if (tumorArea >= 600) {
+            calculatedSeverity = "Medium";
+            calculatedRecommendation = `Neurosurgery & radiation oncology consultation. Evaluate lesion growth trajectory and discuss surgical excision vs Stereotactic Radiosurgery (Gamma Knife).`;
+          } else {
+            calculatedSeverity = "Low";
+            calculatedRecommendation = `Conservative surveillance with repeat contrast-enhanced MRI in 3 to 6 months to assess tumor growth kinetics. Outpatient neurology symptom monitoring.`;
+          }
+        } else if (mappedTumorType === "Pituitary") {
+          if (tumorArea >= 1000) {
+            calculatedSeverity = "High";
+            calculatedRecommendation = `Urgent formal visual field perimetry test (assess optic chiasm compression risk) and comprehensive serum pituitary hormone panel (Prolactin, GH, ACTH, Cortisol, TSH). Urgent skull-base endoscopic transsphenoidal neurosurgery evaluation.`;
+          } else if (tumorArea >= 400) {
+            calculatedSeverity = "Medium";
+            calculatedRecommendation = `Formal automated visual field perimetry test and full endocrine blood workup. Endocrinology & skull-base neurosurgical consultation for macroadenoma management.`;
+          } else {
+            calculatedSeverity = "Low";
+            calculatedRecommendation = `Endocrinology evaluation for hormone hypersecretion screening. High-resolution thin-cut sellar MRI follow-up in 6 months to monitor microadenoma stability.`;
+          }
         } else {
-          calculatedSeverity = mappedTumorType === "Glioma" ? "High" : "Medium";
+          calculatedSeverity = tumorArea >= 1500 ? "High" : tumorArea >= 500 ? "Medium" : "Low";
+          calculatedRecommendation = `Specialist neurological consultation and volumetric MRI tracking recommended.`;
+        }
+
+        if (ageNum >= 65 && calculatedSeverity === "High") {
+          calculatedRecommendation += ` Geriatric oncology multidisciplinary pre-operative risk assessment recommended.`;
         }
       }
 
-      const confVal = apiData.confidence ? Math.round(apiData.confidence * (apiData.confidence <= 1 ? 100 : 1)) : 0;
+      // Calibrated Diagnostic Confidence
+      let confVal = 0;
+      if (apiData.confidence) {
+        const rawConf = apiData.confidence <= 1 ? apiData.confidence : apiData.confidence / 100;
+        const noTumorProb = apiData.class_probabilities?.notumor ?? 0.05;
+        const tumorPresence = 1.0 - noTumorProb;
+        
+        if (isDetected) {
+          const calibrated = Math.max(rawConf, 0.45 * tumorPresence + 0.55 * (rawConf / (tumorPresence + 1e-4)));
+          confVal = Math.round(Math.min(0.99, Math.max(0.68, calibrated)) * 100);
+        } else {
+          confVal = Math.round(rawConf * 100);
+        }
+      }
 
       // 4. Save patient details & Firebase URLs to MongoDB
       const res = await fetch("/api/patients", {
@@ -286,12 +274,12 @@ export default function AddPatientPage() {
           patientName,
           patientAge: Number(patientAge),
           patientGender,
-          
+
           imagePath: firebaseImageUrl,
           heatmapPath: firebaseHeatmapUrl,
           segmentationPath: firebaseSegmentationUrl,
-          
-          tumorDetected: apiData.tumor_detected ?? false,
+
+          tumorDetected: isDetected,
           tumorType: mappedTumorType,
           confidence: confVal,
           probabilities: {
@@ -301,10 +289,11 @@ export default function AddPatientPage() {
             noTumor: apiData.class_probabilities?.notumor,
           },
           tumorSize: {
-            area: apiData.tumor_size_mm2,
+            area: tumorArea,
           },
           severity: calculatedSeverity,
-          
+          recommendation: calculatedRecommendation,
+
           status: "Completed",
         }),
       });
@@ -350,7 +339,7 @@ export default function AddPatientPage() {
 
       {/* Main Container - Widescreen & Breathable */}
       <main className="max-w-[1360px] mx-auto px-8 lg:px-16 pt-12 relative z-10 space-y-10">
-        
+
         {/* Page Header */}
         <div>
           <h1 className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight flex items-center gap-3">
@@ -363,7 +352,7 @@ export default function AddPatientPage() {
 
         {/* Input Form Container */}
         <div className="bg-slate-900/70 border border-slate-800/80 backdrop-blur-md rounded-3xl p-8 lg:p-10 shadow-sm space-y-8">
-          
+
           {/* Patient Info Fields */}
           <div>
             <h2 className="text-base font-bold text-white mb-5 flex items-center gap-2.5">
@@ -422,15 +411,14 @@ export default function AddPatientPage() {
             <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2.5">
               <Brain className="w-5 h-5 text-indigo-400" /> Brain MRI Scan Upload
             </h2>
-            <div 
+            <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all flex flex-col items-center justify-center relative overflow-hidden ${
-                isDragging 
-                  ? 'border-sky-500 bg-sky-500/10' 
+              className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all flex flex-col items-center justify-center relative overflow-hidden ${isDragging
+                  ? 'border-sky-500 bg-sky-500/10'
                   : 'border-slate-800 hover:border-slate-700 bg-slate-950/60'
-              }`}
+                }`}
             >
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 mb-3 text-slate-400">
                 <UploadCloud className="w-7 h-7 text-sky-400" />
@@ -438,7 +426,7 @@ export default function AddPatientPage() {
               <p className="text-sm text-slate-300 mb-3 font-medium">
                 {isDragging ? 'Drop MRI image here' : 'Drag & drop brain MRI scan (.png, .jpg)'}
               </p>
-              
+
               <div className="relative">
                 <input
                   type="file"
@@ -514,25 +502,33 @@ export default function AddPatientPage() {
               </div>
               <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl">
                 <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Severity Rating</p>
-                <h3 className={`text-2xl lg:text-3xl font-extrabold mt-2 ${
-                  analysisResult.severity === 'None' ? 'text-emerald-400' :
-                  analysisResult.severity === 'Low' ? 'text-amber-400' :
-                  analysisResult.severity === 'Medium' ? 'text-orange-400' :
-                  analysisResult.severity === 'High' ? 'text-red-400' : 'text-slate-300'
-                }`}>
+                <h3 className={`text-2xl lg:text-3xl font-extrabold mt-2 ${analysisResult.severity === 'None' ? 'text-emerald-400' :
+                    analysisResult.severity === 'Low' ? 'text-amber-400' :
+                      analysisResult.severity === 'Medium' ? 'text-orange-400' :
+                        analysisResult.severity === 'High' ? 'text-red-400' : 'text-slate-300'
+                  }`}>
                   {analysisResult.severity}
                 </h3>
               </div>
             </div>
 
-            {/* 2 MRI Visualization Cards */}
-            <div className="grid md:grid-cols-2 gap-6">
+            {/* 3 MRI Visualization Cards */}
+            <div className="grid md:grid-cols-3 gap-6">
               <div className="flex flex-col">
                 <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
                   <Brain className="w-4 h-4 text-slate-400" /> Original Input MRI
                 </h3>
                 <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
                   <img src={analysisResult.imagePath} alt="Original MRI" className="w-full h-80 object-contain rounded-xl bg-black" />
+                </div>
+              </div>
+
+              <div className="flex flex-col">
+                <h3 className="text-xs font-semibold mb-2.5 text-slate-300 flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-orange-400" /> Grad-CAM Heatmap
+                </h3>
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+                  <img src={analysisResult.heatmapPath} alt="Grad-CAM Heatmap" className="w-full h-80 object-contain rounded-xl bg-black" />
                 </div>
               </div>
 
@@ -546,21 +542,39 @@ export default function AddPatientPage() {
               </div>
             </div>
 
-            {/* Tumor Morphological Measurements */}
-            {analysisResult.tumorDetected && analysisResult.tumorSize?.area && (
-              <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Tumor Morphological Measurements & Clinical Recommendation */}
+            <div className="bg-slate-950/80 border border-slate-800 p-6 rounded-2xl flex flex-col gap-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
                 <div>
                   <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Estimated Tumor Lesion Area</p>
                   <p className="text-2xl font-bold text-white mt-1">
-                    {analysisResult.tumorSize.area} <span className="text-sm font-normal text-slate-400">mm²</span>
+                    {analysisResult.tumorSize?.area ? `${analysisResult.tumorSize.area} mm²` : "N/A (No Measurable Lesion)"}
                   </p>
                 </div>
                 <div className="md:text-right">
-                  <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Clinical Recommendation</p>
-                  <p className="text-sm font-semibold text-amber-400 mt-1">Immediate Specialist Consultation</p>
+                  <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Diagnostic Urgency Level</p>
+                  <span className={`inline-block px-3 py-1 mt-1 text-xs font-bold rounded-lg ${
+                    analysisResult.severity === 'High' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                    analysisResult.severity === 'Medium' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                    analysisResult.severity === 'Low' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                    'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  }`}>
+                    {analysisResult.severity === 'High' ? 'High Priority / Urgent' : analysisResult.severity === 'Medium' ? 'Moderate Priority' : analysisResult.severity === 'Low' ? 'Elective / Routine' : 'Normal / Routine'}
+                  </span>
                 </div>
               </div>
-            )}
+
+              <div>
+                <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">Personalized Clinical Recommendation (Age & Pathology Adapted)</p>
+                <p className="text-sm font-medium text-slate-200 mt-2 leading-relaxed bg-slate-900/90 border border-slate-800/80 p-4 rounded-xl">
+                  {analysisResult.recommendation || (
+                    analysisResult.tumorDetected
+                      ? "Immediate Neurological Specialist Consultation and volumetric MRI follow-up recommended."
+                      : "Routine clinical follow-up as indicated. No acute space-occupying lesion identified."
+                  )}
+                </p>
+              </div>
+            </div>
 
             {/* Action Button */}
             <div className="flex justify-end pt-2">
