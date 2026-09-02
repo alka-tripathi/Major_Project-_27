@@ -21,6 +21,7 @@ import sys
 import io
 import base64
 import json
+import asyncio
 
 import numpy as np
 import cv2
@@ -30,19 +31,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 
-from tensorflow.keras.applications import EfficientNetB3
-from tensorflow.keras.applications.efficientnet import preprocess_input
-from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, BatchNormalization
-from tensorflow.keras.models import Model
+try:
+    from keras.applications import EfficientNetB3
+    from keras.applications.efficientnet import preprocess_input
+    from keras.layers import GlobalAveragePooling2D, Dense, Dropout, BatchNormalization
+    from keras.models import Model
+except ImportError:
+    from tensorflow.keras.applications import EfficientNetB3  # type: ignore
+    from tensorflow.keras.applications.efficientnet import preprocess_input  # type: ignore
+    from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, BatchNormalization  # type: ignore
+    from tensorflow.keras.models import Model  # type: ignore
 
 # ----------------------------------------------------------------------------
 # Make sibling folders importable (postprocessing/, segmentation/)
 # ----------------------------------------------------------------------------
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(CURRENT_DIR, ".."))
 sys.path.append(os.path.join(CURRENT_DIR, "..", "postprocessing"))
 sys.path.append(os.path.join(CURRENT_DIR, "..", "segmentation"))
 
-from postprocess import process_mask, classify_stage, PIXEL_SPACING_MM   # noqa: E402
+try:
+    from postprocessing.postprocess import process_mask, classify_stage, PIXEL_SPACING_MM   # noqa: E402
+except ImportError:
+    from postprocess import process_mask, classify_stage, PIXEL_SPACING_MM   # type: ignore # noqa: E402
 
 # ----------------------------------------------------------------------------
 # CONFIG
@@ -75,7 +86,10 @@ def build_classification_model():
 
 
 def build_segmentation_model():
-    from train_unet import build_model as build_unet
+    try:
+        from segmentation.train_unet import build_model as build_unet
+    except ImportError:
+        from train_unet import build_model as build_unet  # type: ignore
     m = build_unet()
     dummy = np.zeros((1, SEG_IMG_SIZE, SEG_IMG_SIZE, 3), dtype=np.float32)
     _ = m(dummy)
@@ -296,7 +310,6 @@ async def predict(file: UploadFile = File(...)):
 async def health_check():
     return {"status": "ok", "models_loaded": True}
 
-import asyncio
 
 @app.websocket("/ws/train/{model_type}")
 async def websocket_train(websocket: WebSocket, model_type: str):
@@ -356,7 +369,7 @@ async def websocket_train(websocket: WebSocket, model_type: str):
         print(f"WebSocket Exception: {e}", flush=True)
         try:
             await websocket.send_json({"error": str(e)})
-        except:
+        except Exception:
             pass
         if process and process.returncode is None:
             process.terminate()
